@@ -42,9 +42,9 @@ export interface PlaneClassDef {
 }
 
 export const PLANES: PlaneClassDef[] = [
-  { name: "Regional Turboprop", short: "Regional", seats: 18, landingFee: 450, commission: 14, minRunway: 8, ground: 24, tier: 1, size: 1.4 },
-  { name: "Narrow-body Jet", short: "Domestic", seats: 42, landingFee: 1200, commission: 24, minRunway: 12, ground: 32, tier: 2, size: 2.0 },
-  { name: "Wide-body Jet", short: "International", seats: 84, landingFee: 3400, commission: 55, minRunway: 18, ground: 46, tier: 3, size: 2.9 },
+  { name: "Regional Turboprop", short: "Regional", seats: 18, landingFee: 450, commission: 14, minRunway: 8, ground: 24, tier: 1, size: 1.0 },
+  { name: "Narrow-body Jet", short: "Domestic", seats: 42, landingFee: 1200, commission: 24, minRunway: 12, ground: 32, tier: 2, size: 1.45 },
+  { name: "Wide-body Jet", short: "International", seats: 84, landingFee: 3400, commission: 55, minRunway: 18, ground: 46, tier: 3, size: 2.1 },
 ];
 
 export const TIER_NAMES = ["", "Regional Airfield", "Domestic Hub", "International Airport"];

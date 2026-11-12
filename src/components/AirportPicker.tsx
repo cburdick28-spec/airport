@@ -52,7 +52,8 @@ export default function AirportPicker({ current }: { current: string }) {
         </div>
         <p className="mt-4 text-xs text-slate-500">
           Runway positions, lengths and crossings come from real runway coordinates (OurAirports open data), rotated to
-          fit the grid. Terminals and taxiways are simplified by hand.
+          fit the grid. Terminal positions follow real gate locations (FlightGear open scenery data). Taxiways and gate
+          counts are simplified by hand.
         </p>
       </div>
     </div>

@@ -368,6 +368,23 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, view: View) 
   planes.sort((p, q) => Number(p.state === "landing" || p.state === "takeoff") - Number(q.state === "landing" || q.state === "takeoff"));
   for (const f of planes) drawPlane(ctx, f, T);
 
+  // terminal name signs
+  if (s.labels.length > 0) {
+    ctx.font = `800 ${Math.max(9, T * 0.62)}px system-ui, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    for (const l of s.labels) {
+      const lx = l.x * T + T / 2;
+      const ly = l.y * T + T / 2;
+      const w = ctx.measureText(l.text).width + T * 0.5;
+      ctx.fillStyle = "rgba(15,23,42,0.82)";
+      roundRect(ctx, lx - w / 2, ly - T * 0.45, w, T * 0.9, T * 0.25);
+      ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.fillText(l.text, lx, ly + 1);
+    }
+  }
+
   // night tint
   const hour = (s.time / 60) % 24;
   const night = hour < 5 || hour >= 21 ? 1 : hour < 7 ? (7 - hour) / 2 : hour >= 19 ? (hour - 19) / 2 : 0;

@@ -3,7 +3,7 @@
 
 import { SAVE_KEY } from "./constants";
 import { addEvent, createEmptyState } from "./simulation";
-import type { Contract, GameState, TileType } from "./types";
+import type { Contract, GameState, MapLabel, TileType } from "./types";
 
 const TYPES: TileType[] = [
   "empty", "parking", "shuttle", "sidewalk", "floor", "checkin", "tsa", "customs", "gate", "runway", "taxiway",
@@ -29,6 +29,7 @@ interface SaveData {
   contractsCompleted?: number;
   nextId?: number;
   name?: string;
+  labels?: MapLabel[];
 }
 
 export function serialize(s: GameState): string {
@@ -52,6 +53,7 @@ export function serialize(s: GameState): string {
     contractsCompleted: s.contractsCompleted,
     nextId: s.nextId,
     name: s.name,
+    labels: s.labels,
   };
   return JSON.stringify(data);
 }
@@ -72,6 +74,7 @@ export function deserialize(json: string): GameState | null {
     s.flightsHandled = d.flightsHandled ?? 0;
     s.missedFlights = d.missedFlights ?? 0;
     s.name = d.name ?? "My Airport";
+    s.labels = d.labels ?? [];
     s.contracts = d.contracts ?? [];
     s.contractOffers = d.contractOffers ?? [];
     s.nextOffer = d.nextOffer ?? s.time;

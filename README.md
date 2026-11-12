@@ -33,7 +33,7 @@ The game opens on a working starter airfield. Blue dots are departing passengers
 
 Hover any tile to see why it isn't working ("Needs TSA connection", "No runway access", and so on). The side panel shows what each flight class is waiting on.
 
-**Pre-built airports:** the Airports button loads ready-made, working layouts: LaGuardia, JFK, LAX, Atlanta, the starter airfield, or a blank field. Their runway positions, lengths and crossings are taken from real runway end coordinates ([OurAirports](https://github.com/davidmegginson/ourairports-data) open data), rotated so the runways line up with the grid. Terminals and taxiways are simplified by hand.
+**Pre-built airports:** the Airports button loads ready-made, working layouts: LaGuardia, JFK, LAX, Atlanta, the starter airfield, or a blank field. Their runway positions, lengths and crossings are taken from real runway end coordinates ([OurAirports](https://github.com/davidmegginson/ourairports-data) open data), rotated so the runways line up with the grid. Terminals sit where the real gates are (positions from FlightGear's open ground-network data) and carry their real names as signs; taxiways and gate counts are simplified by hand.
 
 **Runways:** build them in a straight line, left to right or top to bottom. Horizontal runways are used west to east and vertical ones north to south. Runways can cross, but crossing runways can only be used one at a time.
 

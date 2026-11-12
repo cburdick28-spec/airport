@@ -69,6 +69,7 @@ export function createEmptyState(money = 60000): GameState {
     gateNote: {},
     runwayLocks: {},
     name: "My Airport",
+    labels: [],
     nextId: 1,
     nextSchedule: START_TIME,
     nextHour: START_TIME + 60,

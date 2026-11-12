@@ -128,6 +128,12 @@ export interface Bus {
   riders: number[];
 }
 
+export interface MapLabel {
+  x: number;
+  y: number;
+  text: string;
+}
+
 export interface Facility {
   queue: number[];
   progress: number;
@@ -166,6 +172,8 @@ export interface GameState {
   runwayLocks: Record<number, number>;
   /** display name of this airport */
   name: string;
+  /** floating signs such as terminal names (tile coordinates) */
+  labels: MapLabel[];
   nextId: number;
   nextSchedule: number;
   nextHour: number;

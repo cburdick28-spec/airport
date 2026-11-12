@@ -111,6 +111,12 @@ function laguardia(): GameState {
   set(s, 20, 18, "sidewalk");
   rect(s, 19, 19, 21, 19, "parking");
 
+  s.labels = [
+    { x: 35, y: 17.5, text: "B" },
+    { x: 43, y: 17.5, text: "C" },
+    { x: 20, y: 15.5, text: "A" },
+  ];
+
   return finish(s, {
     name: "LaGuardia (LGA)",
     tier: 2,
@@ -160,44 +166,67 @@ function jfk(): GameState {
   // 4R/22L exits cross 4L on the way in
   taxi(s, 40, 14, 52, 14);
 
-  // sterile ring (outside) with gates facing the apron
-  rect(s, 21, 11, 37, 11, "floor");
-  rect(s, 21, 21, 37, 22, "floor");
-  rect(s, 21, 12, 22, 20, "floor");
-  rect(s, 36, 12, 37, 20, "floor");
-  gates(s, 10, [[24, 2], [28, 2], [32, 2], [36, 2]]);
-  gates(s, 23, [[23, 3], [28, 3], [33, 3]]);
-  for (const y of [13, 17, 21]) set(s, 20, y, "gate", 2);
-  for (const y of [13, 18]) set(s, 38, y, "gate", 3);
-  row(s, 22, [24, 30], "customs", 2);
-  set(s, 36, 19, "customs", 2);
-
-  // security, then the landside ring (inside)
-  row(s, 12, [27, 28], "tsa", 3);
-  row(s, 20, [27, 28, 31], "tsa", 3);
+  // Five separate terminals around the central area, placed where the real gates are.
+  // Each has its own sterile concourse, security and check-in.
+  // Terminal 7 (north-west)
+  rect(s, 23, 11, 28, 11, "floor");
+  gates(s, 10, [[24, 2], [27, 2]]);
+  set(s, 25, 12, "tsa", 3);
+  rect(s, 24, 13, 27, 13, "floor");
+  set(s, 27, 13, "checkin", 3);
+  // Terminal 5 (north-east)
+  rect(s, 30, 11, 37, 11, "floor");
+  gates(s, 10, [[30, 2], [32, 2], [34, 2], [36, 2]]);
+  row(s, 12, [33, 34], "tsa", 3);
+  rect(s, 31, 13, 34, 13, "floor");
+  set(s, 31, 13, "checkin", 3);
+  // Terminal 4 (east): the long international concourse facing 4L/22R
+  rect(s, 36, 13, 37, 22, "floor");
+  for (const y of [13, 15, 17, 19, 21]) set(s, 38, y, "gate", 3);
+  rect(s, 35, 15, 35, 18, "tsa", 3);
+  rect(s, 34, 15, 34, 18, "floor");
+  set(s, 36, 19, "customs", 3);
+  set(s, 37, 14, "customs", 3);
+  // Terminal 1 (south)
+  rect(s, 23, 21, 33, 22, "floor");
+  gates(s, 23, [[24, 3], [27, 3], [30, 3], [33, 3]]);
+  row(s, 20, [26, 27, 28, 29], "tsa", 3);
+  rect(s, 25, 19, 31, 19, "floor");
+  set(s, 25, 19, "checkin", 3);
+  set(s, 31, 19, "checkin", 3);
+  set(s, 25, 22, "customs", 3);
+  set(s, 31, 22, "customs", 3);
+  // Terminal 8 (west)
+  rect(s, 21, 13, 22, 19, "floor");
+  for (const y of [13, 15, 17, 19]) set(s, 20, y, "gate", 2);
   set(s, 23, 15, "tsa", 3);
   set(s, 23, 16, "tsa", 3);
-  set(s, 35, 15, "tsa", 3);
-  set(s, 35, 16, "tsa", 3);
-  rect(s, 24, 13, 34, 13, "floor");
-  rect(s, 24, 19, 34, 19, "floor");
-  rect(s, 24, 14, 24, 18, "floor");
-  rect(s, 34, 14, 34, 18, "floor");
-  row(s, 13, [25, 31], "checkin", 3);
-  row(s, 19, [26, 32], "checkin", 3);
+  rect(s, 24, 14, 24, 17, "floor");
+  set(s, 24, 14, "checkin", 3);
   set(s, 24, 17, "checkin", 3);
-  set(s, 34, 17, "checkin", 3);
 
-  // central parking, plus a remote lot on the AirTrain (shuttle) loop
+  // the terminal road loop, central parking and the AirTrain (shuttle) to a remote lot
+  rect(s, 28, 13, 30, 13, "sidewalk");
+  for (const [sx, sy] of [[34, 13], [34, 14], [34, 19], [33, 19], [32, 19], [24, 18], [24, 19]]) set(s, sx, sy, "sidewalk");
   rect(s, 25, 14, 33, 14, "sidewalk");
   rect(s, 25, 18, 33, 18, "sidewalk");
   rect(s, 25, 15, 25, 17, "sidewalk");
   rect(s, 33, 15, 33, 17, "sidewalk");
   rect(s, 26, 15, 32, 17, "parking", 3);
   set(s, 29, 14, "shuttle");
+  set(s, 34, 14, "checkin", 3); // Terminal 4 ticketing, on the road loop
+  set(s, 34, 19, "checkin", 3);
   rect(s, 4, 12, 11, 15, "parking", 2);
   rect(s, 12, 13, 12, 14, "sidewalk");
   set(s, 13, 13, "shuttle");
+
+  s.labels = [
+    { x: 25.5, y: 11, text: "T7" },
+    { x: 33.5, y: 11, text: "T5" },
+    { x: 36.5, y: 17.5, text: "T4" },
+    { x: 28, y: 21.5, text: "T1" },
+    { x: 21.5, y: 16, text: "T8" },
+  ];
 
   return finish(s, {
     name: "New York JFK",
@@ -220,53 +249,68 @@ function lax(): GameState {
   rect(s, 15, 30, 63, 30, "runway"); // 7L/25R
   rect(s, 18, 33, 60, 33, "runway"); // 7R/25L
 
-  taxi(s, 2, 15, 48, 15);
-  taxi(s, 23, 16, 48, 16);
-  taxi(s, 23, 27, 48, 27);
+  taxi(s, 2, 15, 60, 15);
   taxi(s, 15, 28, 60, 28);
-  taxi(s, 23, 17, 23, 26);
-  taxi(s, 48, 17, 48, 26);
+  taxi(s, 23, 16, 24, 27);
+  taxi(s, 60, 16, 60, 27);
   for (const x of [2, 30, 43]) taxi(s, x, 14, x, 14);
   for (const x of [6, 24, 40]) taxi(s, x, 11, x, 14); // the outer runway's traffic crosses the inner one
   for (const x of [15, 40, 56, 60]) taxi(s, x, 29, x, 29);
   for (const x of [18, 40, 60]) taxi(s, x, 29, x, 32);
+  // alleys between the piers
+  for (const [x0, x1] of [[28, 30], [34, 35], [39, 40], [44, 45]]) taxi(s, x0, 16, x1, 19);
+  for (const [x0, x1] of [[28, 30], [34, 35], [39, 40], [44, 45], [49, 50]]) taxi(s, x0, 23, x1, 27);
 
-  // sterile U (outside)
-  rect(s, 25, 18, 47, 18, "floor");
-  rect(s, 25, 25, 47, 25, "floor");
-  rect(s, 25, 19, 26, 24, "floor");
-  gates(s, 17, [[29, 2], [33, 2], [37, 2], [41, 2], [45, 2]]);
-  gates(s, 26, [[29, 2], [33, 2], [37, 2], [41, 2], [45, 2]]);
-  set(s, 24, 18, "gate", 3); // Tom Bradley International at the west end
-  set(s, 24, 22, "gate", 3);
-  set(s, 24, 25, "gate", 2);
-  set(s, 25, 20, "customs", 2);
-  set(s, 26, 23, "customs", 2);
+  // Tom Bradley International: the long bar across the west end
+  rect(s, 26, 17, 26, 27, "floor");
+  set(s, 26, 21, "tsa", 3);
+  set(s, 26, 20, "customs", 2);
+  set(s, 26, 22, "customs", 2);
+  for (const y of [17, 19, 23, 25]) set(s, 25, y, "gate", 3);
+  set(s, 27, 18, "gate", 3);
+  set(s, 27, 24, "gate", 3);
+  set(s, 27, 26, "gate", 2);
 
-  // security and the landside U (inside)
-  row(s, 19, [33, 34, 41, 42], "tsa", 3);
-  row(s, 24, [33, 34, 41, 42], "tsa", 3);
-  set(s, 27, 21, "tsa", 3);
-  set(s, 27, 22, "tsa", 3);
-  rect(s, 28, 20, 46, 20, "floor");
-  rect(s, 28, 23, 46, 23, "floor");
-  rect(s, 28, 21, 28, 22, "floor");
-  row(s, 20, [31, 37, 44], "checkin", 3);
-  row(s, 23, [31, 37, 44], "checkin", 3);
+  // the landside spine along the terminal road
+  rect(s, 27, 21, 49, 21, "floor");
+  row(s, 21, [30, 35, 40, 44, 46, 48], "checkin", 3);
 
-  rect(s, 29, 21, 29, 22, "sidewalk");
-  rect(s, 30, 21, 46, 22, "parking", 3);
-  set(s, 47, 21, "shuttle");
-  rect(s, 52, 19, 58, 23, "parking", 2);
-  set(s, 51, 21, "shuttle");
+  // north piers: Terminals 3, 2, 1. South piers: Terminals 4, 5, 6, 7/8.
+  for (const c of [32, 37, 42]) {
+    rect(s, c, 16, c, 19, "floor");
+    set(s, c, 20, "tsa", 3);
+    set(s, c - 1, 17, "gate", 2);
+    set(s, c - 1, 19, "gate", 2);
+    set(s, c + 1, 18, "gate", 2);
+  }
+  for (const c of [32, 37, 42, 47]) {
+    set(s, c, 22, "tsa", 3);
+    rect(s, c, 23, c, 27, "floor");
+    set(s, c - 1, 24, "gate", 2);
+    set(s, c - 1, 26, "gate", 2);
+    set(s, c + 1, 25, "gate", 2);
+  }
+
+  rect(s, 50, 21, 51, 21, "sidewalk");
+  rect(s, 52, 19, 58, 23, "parking", 3);
+
+  s.labels = [
+    { x: 25.5, y: 21, text: "TBIT" },
+    { x: 32, y: 17, text: "T3" },
+    { x: 37, y: 17, text: "T2" },
+    { x: 42, y: 17, text: "T1" },
+    { x: 32, y: 25.5, text: "T4" },
+    { x: 37, y: 25.5, text: "T5" },
+    { x: 42, y: 25.5, text: "T6" },
+    { x: 47, y: 25.5, text: "T7" },
+  ];
 
   return finish(s, {
     name: "Los Angeles (LAX)",
     tier: 3,
     served: 6000,
-    drivers: 2,
-    hello: "Welcome to LAX: two pairs of parallel runways with the terminal horseshoe in between.",
-    goal: "Planes from the outer runways have to cross the inner ones. Thirteen gates: watch the queue badges.",
+    hello: "Welcome to LAX: Tom Bradley across the west end, Terminals 1 to 3 north and 4 to 7 south.",
+    goal: "Every terminal has its own single security lane. Find the pier that backs up first and upgrade it.",
   });
 }
 
@@ -330,6 +374,9 @@ function atlanta(): GameState {
   rect(s, 53, 8, 56, 11, "parking", 3);
   rect(s, 53, 16, 56, 19, "parking", 3);
 
+  s.labels = ["T", "A", "B", "C", "D", "E", "F"].map((text, i) => ({ x: bars[i], y: 13.5, text }));
+  s.labels.push({ x: 4.5, y: 13.5, text: "DOM" }, { x: 54.5, y: 13.5, text: "INTL" });
+
   return finish(s, {
     name: "Atlanta (ATL)",
     tier: 3,
@@ -363,8 +410,8 @@ export const SCENARIOS: Scenario[] = [
     name: "New York JFK",
     code: "JFK",
     tagline: "The international gateway",
-    blurb: "Four runways in a pinwheel around the central terminal ring. 4L/22R crosses both 13s, just like the real thing.",
-    facts: "Tier 3 · 12 gates · 4 runways · $150k",
+    blurb: "Four runways in a pinwheel around Terminals 1, 4, 5, 7 and 8, each with its own security. 4L/22R crosses both 13s.",
+    facts: "Tier 3 · 19 gates · 4 runways · $150k",
     create: jfk,
   },
   {
@@ -372,8 +419,8 @@ export const SCENARIOS: Scenario[] = [
     name: "Los Angeles",
     code: "LAX",
     tagline: "Four runways, one horseshoe",
-    blurb: "A U of terminals between two pairs of parallel runways, with Tom Bradley International at the west end.",
-    facts: "Tier 3 · 13 gates · 4 runways · $200k",
+    blurb: "Tom Bradley International across the west end, Terminals 1-3 as north piers and 4-7 as south piers, between two runway pairs.",
+    facts: "Tier 3 · 28 gates · 4 runways · $200k",
     create: lax,
   },
   {

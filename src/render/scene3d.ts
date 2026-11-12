@@ -491,6 +491,14 @@ export class Scene3D {
     }
     b.build(this.staticGroup);
 
+    // terminal name signs
+    for (const l of s.labels) {
+      const sign = this.sprite(l.text, "#0f172a");
+      sign.position.set(l.x, 2.6, l.y);
+      sign.scale.set(2.2, 1.1, 1);
+      this.labelGroup.add(sign);
+    }
+
     // shuttle route
     if (this.routeLine) {
       this.scene.remove(this.routeLine);
@@ -530,7 +538,7 @@ export class Scene3D {
       ctx.lineWidth = 4;
       ctx.stroke();
       ctx.fillStyle = "#ffffff";
-      ctx.font = "800 32px system-ui, sans-serif";
+      ctx.font = `800 ${text.length > 3 ? 26 : 32}px system-ui, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(text, 64, 34);
