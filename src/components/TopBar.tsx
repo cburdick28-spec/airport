@@ -18,22 +18,17 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
 
 export default function TopBar({ s }: { s: GameState }) {
   const [menu, setMenu] = useState(false);
-  const [confirm, setConfirm] = useState<"tutorial" | "blank" | null>(null);
   const sat = Math.round(s.satisfaction);
   const satTone = sat >= 80 ? "text-emerald-400" : sat >= 60 ? "text-amber-400" : "text-rose-400";
-
-  const restart = (kind: "tutorial" | "blank") => {
-    if (confirm !== kind) return setConfirm(kind);
-    store.newGame(kind);
-    setConfirm(null);
-    setMenu(false);
-  };
 
   return (
     <header className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-slate-700 bg-slate-900 px-4 py-2">
       <div className="flex items-center gap-2">
         <div className="grid h-7 w-7 place-items-center rounded-md bg-sky-500 text-sm font-black text-white">A</div>
-        <span className="hidden text-sm font-bold tracking-wide sm:block">Airport Tycoon</span>
+        <span className="hidden flex-col leading-tight sm:flex">
+          <span className="text-[10px] uppercase tracking-wider text-slate-400">Airport Tycoon</span>
+          <span className="text-sm font-bold">{s.name}</span>
+        </span>
       </div>
       <Stat label="Money" value={money(s.money)} tone={s.money < 0 ? "text-rose-400" : "text-emerald-300"} />
       <Stat label={`Tier ${s.tier}`} value={TIER_NAMES[s.tier]} tone="text-sky-300" />
@@ -64,6 +59,13 @@ export default function TopBar({ s }: { s: GameState }) {
           ))}
         </div>
         <button
+          onClick={() => store.setPicker(true)}
+          title="Load a pre-built airport: JFK, LaGuardia, LAX, Atlanta and more"
+          className="rounded-md border border-sky-500 bg-sky-500/20 px-3 py-1 text-sm font-semibold hover:bg-sky-500/40"
+        >
+          Airports
+        </button>
+        <button
           onClick={() => store.setView3d(!store.view3d)}
           title="Switch between the 3D view and the lighter 2D map"
           className="rounded-md border border-slate-600 bg-slate-800 px-3 py-1 text-sm font-semibold hover:bg-slate-700"
@@ -72,10 +74,7 @@ export default function TopBar({ s }: { s: GameState }) {
         </button>
         <div className="relative">
           <button
-            onClick={() => {
-              setMenu(!menu);
-              setConfirm(null);
-            }}
+            onClick={() => setMenu(!menu)}
             className="rounded-md border border-slate-600 bg-slate-800 px-3 py-1 text-sm font-semibold hover:bg-slate-700"
           >
             Menu
@@ -91,11 +90,14 @@ export default function TopBar({ s }: { s: GameState }) {
               >
                 Save now
               </button>
-              <button className="block w-full rounded px-3 py-2 text-left hover:bg-slate-700" onClick={() => restart("tutorial")}>
-                {confirm === "tutorial" ? "Click again to wipe and restart" : "Restart tutorial airport"}
-              </button>
-              <button className="block w-full rounded px-3 py-2 text-left hover:bg-slate-700" onClick={() => restart("blank")}>
-                {confirm === "blank" ? "Click again to wipe and start blank" : "Start a blank airport"}
+              <button
+                className="block w-full rounded px-3 py-2 text-left hover:bg-slate-700"
+                onClick={() => {
+                  store.setPicker(true);
+                  setMenu(false);
+                }}
+              >
+                Change airport / new game
               </button>
               <p className="px-3 py-2 text-xs text-slate-400">Autosaves to this browser every 20 seconds.</p>
             </div>

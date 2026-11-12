@@ -14,6 +14,7 @@ npm install
 npm run dev        # http://localhost:3000
 npm run build      # production build (what Vercel runs)
 npm run test:sim   # headless test of the simulation engine
+npm run test:scenarios   # runs every pre-built airport for a simulated day
 ```
 
 ## How to play
@@ -32,6 +33,8 @@ The game opens on a working starter airfield. Blue dots are departing passengers
 
 Hover any tile to see why it isn't working ("Needs TSA connection", "No runway access", and so on). The side panel shows what each flight class is waiting on.
 
+**Pre-built airports:** the Airports button loads ready-made, working layouts: LaGuardia, JFK, LAX, Atlanta, the starter airfield, or a blank field. They are simplified versions of the real airports. Runways only run left to right in this engine, so crossing runways appear as parallel ones.
+
 **Airline contracts:** airlines offer deals in the side panel (for example "6 regional flights in 8h"). Signed contracts send guaranteed flights and pay a bonus when finished. Leaving passengers behind costs a fine, and missing the deadline costs a penalty.
 
 **Controls:** Space = pause, 1/2/3 = speed, B = bulldoze, U = upgrade, Esc = stop building. Drag to paint floors, walkways, runways and taxiways.
@@ -49,6 +52,7 @@ src/
     analysis.ts    gate diagnostics, tier checklist, tooltips
     simulation.ts  game loop step, flights, passengers, buses, economy, build actions
     starter.ts     the pre-built tutorial airport
+    scenarios.ts   pre-built airports (LGA, JFK, LAX, ATL)
     save.ts        localStorage save and load
   render/
     scene3d.ts     three.js 3D view

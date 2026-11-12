@@ -4,7 +4,8 @@
 import { BUILD } from "@/game/constants";
 import { clearSave, loadGame, saveGame } from "@/game/save";
 import { build, demolish, fireDriver, hireDriver, runMarketing, signContract, upgrade, type ActionResult } from "@/game/simulation";
-import { createBlankAirport, createTutorialAirport } from "@/game/starter";
+import { SCENARIOS } from "@/game/scenarios";
+import { createTutorialAirport } from "@/game/starter";
 import type { GameState } from "@/game/types";
 import type { Tool } from "@/render/renderer";
 
@@ -27,6 +28,8 @@ export const store = {
   lastEventId: 0,
   /** true = 3D view (three.js), false = classic 2D canvas */
   view3d: true,
+  /** airport picker dialog open? */
+  picker: false,
 
   subscribe(fn: () => void) {
     listeners.add(fn);
@@ -51,13 +54,23 @@ export const store = {
     store.lastEventId = store.state.nextId;
     store.bump();
   },
-  newGame(kind: "tutorial" | "blank") {
+  /** wipe the current game and load one of the pre-built airports */
+  newGame(id: string) {
+    const sc = SCENARIOS.find((x) => x.id === id);
+    if (!sc) return;
     clearSave();
-    store.state = kind === "tutorial" ? createTutorialAirport() : createBlankAirport();
+    store.state = sc.create();
     store.lastEventId = store.state.nextId;
     store.tool = null;
+    store.hover = -1;
     store.paused = false;
-    store.say(kind === "tutorial" ? "Tutorial airport loaded" : "Blank airport: build from scratch", "info");
+    store.picker = false;
+    saveGame(store.state);
+    store.say(`Now running: ${store.state.name}`, "good");
+  },
+  setPicker(open: boolean) {
+    store.picker = open;
+    store.bump();
   },
   save() {
     if (store.state) store.say(saveGame(store.state) ? "Game saved" : "Could not save (storage blocked)", "info");

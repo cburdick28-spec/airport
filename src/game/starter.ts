@@ -42,6 +42,7 @@ export function createTutorialAirport(): GameState {
   rect(s, 29, 21, 35, 21, "sidewalk");
   set(s, 28, 21, "shuttle");
 
+  s.name = "Starter Airfield";
   s.drivers = 1;
   s.demandTokens = 40;
   s.version++;
@@ -56,6 +57,7 @@ export function createTutorialAirport(): GameState {
 
 export function createBlankAirport(): GameState {
   const s = createEmptyState(60000);
+  s.name = "Blank Field";
   addEvent(s, "Blank field. Build parking, check-in, TSA, a gate, a taxiway and a runway to get flights.", "info");
   return s;
 }

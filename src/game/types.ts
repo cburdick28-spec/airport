@@ -94,6 +94,8 @@ export interface Flight {
   runwayRow: number;
   runwayX0: number;
   runwayX1: number;
+  /** lock key of the runway this flight is using */
+  runwayKey: number;
   onRunway: boolean;
   done: boolean;
   /** id of the airline contract this flight counts toward (0 = none) */
@@ -163,7 +165,10 @@ export interface GameState {
   gateFlight: Record<number, number>;
   gateCooldown: Record<number, number>;
   gateNote: Record<number, string>;
-  runwayLock: number | null;
+  /** which flight currently owns each runway (key = row * 100 + first x) */
+  runwayLocks: Record<number, number>;
+  /** display name of this airport */
+  name: string;
   nextId: number;
   nextSchedule: number;
   nextHour: number;
@@ -192,7 +197,10 @@ export interface GateInfo {
   name: string;
   level: number;
   stand: number;
+  /** longest runway this gate can reach */
   runway: RunwayRun | null;
+  /** every runway this gate can reach */
+  runways: RunwayRun[];
   issues: string[];
   /** landside + airside all good for at least regional flights */
   functional: boolean;

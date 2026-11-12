@@ -37,7 +37,7 @@ import {
   WALK_SPEED,
 } from "./constants";
 import { derivePath, distanceField, distFrom, fieldTo, taxiPath } from "./pathfinding";
-import type { Analysis, Contract, Flight, GameState, Passenger, PlaneClass, StepKind, TileType } from "./types";
+import type { Analysis, Contract, Flight, GameState, Passenger, PlaneClass, RunwayRun, StepKind, TileType } from "./types";
 
 // ---------------------------------------------------------------------------
 // State
@@ -66,7 +66,8 @@ export function createEmptyState(money = 60000): GameState {
     gateFlight: {},
     gateCooldown: {},
     gateNote: {},
-    runwayLock: null,
+    runwayLocks: {},
+    name: "My Airport",
     nextId: 1,
     nextSchedule: START_TIME,
     nextHour: START_TIME + 60,
@@ -82,6 +83,15 @@ export function createEmptyState(money = 60000): GameState {
     nextOffer: START_TIME,
     contractsCompleted: 0,
   };
+}
+
+function runKey(r: RunwayRun): number {
+  return r.row * 100 + r.x0;
+}
+
+function unlockRunway(s: GameState, f: Flight) {
+  if (s.runwayLocks[f.runwayKey] === f.id) delete s.runwayLocks[f.runwayKey];
+  f.onRunway = false;
 }
 
 export function addEvent(s: GameState, text: string, kind: "info" | "good" | "bad" = "info") {
@@ -107,7 +117,9 @@ function ratingOf(p: Passenger): number {
 export function currentDemand(s: GameState): number {
   const sat = 0.5 + 0.5 * (s.satisfaction / 100);
   const mk = s.time < s.marketingUntil ? MARKETING_BOOST : 1;
-  return TIER_DEMAND[s.tier] * sat * mk;
+  // word of mouth: a busy airport keeps attracting more travellers (up to 3x)
+  const growth = 1 + Math.min(2, s.served / 4000);
+  return TIER_DEMAND[s.tier] * sat * mk * growth;
 }
 
 export function hourlyUpkeep(s: GameState): number {
@@ -296,7 +308,9 @@ function planPassenger(s: GameState, a: Analysis, p: Passenger, flights: Map<num
     }
     const f = p.kind === "dep" ? flights.get(p.flightId) : undefined;
     if (p.kind === "dep" && !f) return missFlight(s, p);
+    // where this passenger heads after the desk: their gate, or the exit
     const gateField = f ? fieldTo(s, f.gate) : null;
+    const onward = gateField ?? (a.parking.length > 0 ? distanceField(s, "exit", a.parking) : null);
     let bestScore = Infinity;
     for (const c of list) {
       if (gateField && !isFinite(gateField[c])) continue;
@@ -305,7 +319,8 @@ function planPassenger(s: GameState, a: Analysis, p: Passenger, flights: Map<num
       if (!isFinite(d)) continue;
       const q = s.facilities[c]?.queue.length ?? 0;
       const svc = SERVICE_TIME[kind][s.tiles[c].level - 1];
-      const score = d + q * svc * WALK_SPEED;
+      const after = onward && isFinite(onward[c]) ? onward[c] : 0;
+      const score = d + after + q * svc * WALK_SPEED;
       if (score < bestScore) {
         bestScore = score;
         field = fld;
@@ -606,6 +621,7 @@ function createFlight(s: GameState, gate: number, stand: number, cls: PlaneClass
     runwayRow: 0,
     runwayX0: 0,
     runwayX1: 0,
+    runwayKey: -1,
     onRunway: false,
     done: false,
     contractId: contract ? contract.id : 0,
@@ -626,7 +642,7 @@ function cancelFlight(s: GameState, f: Flight, why: string) {
   f.done = true;
   f.depBooked = f.depSpawned;
   f.spawnTimes = [];
-  if (s.runwayLock === f.id) s.runwayLock = null;
+  unlockRunway(s, f);
   releaseGate(s, f);
   addEvent(s, `Flight ${f.code} cancelled: ${why}`, "bad");
 }
@@ -686,36 +702,52 @@ function updateFlights(s: GameState, a: Analysis, dt: number) {
 
     switch (f.state) {
       case "scheduled": {
-        if (s.time < f.arriveAt || s.runwayLock !== null) break;
+        if (s.time < f.arriveAt) break;
         const g = a.gateByIdx.get(f.gate);
-        if (!g || g.stand < 0 || !g.runway || g.runway.len < def.minRunway) {
+        const usable = g && g.stand >= 0 ? g.runways.filter((r) => r.len >= def.minRunway) : [];
+        if (!g || usable.length === 0) {
           cancelFlight(s, f, "no usable runway route to the gate");
           break;
         }
-        const run = g.runway;
-        // touch down at the runway start, roll out a few tiles, then find the way to the stand
-        const rollEnd = run.row * s.w + run.x0 + Math.min(run.len - 1, 6);
-        const exit = taxiPath(s, rollEnd, g.stand, run) ?? taxiPath(s, rollEnd, g.stand);
-        if (!exit) {
-          cancelFlight(s, f, "no taxiway route to the gate");
-          break;
+        // land on whichever free runway gives the shortest taxi to the stand
+        let best: RunwayRun | null = null;
+        let bestPath: number[] = [];
+        let anyBusy = false;
+        for (const run of usable) {
+          if (s.runwayLocks[runKey(run)] !== undefined) {
+            anyBusy = true;
+            continue;
+          }
+          // touch down at the runway start, roll out a few tiles, then find the way to the stand
+          const rollEnd = run.row * s.w + run.x0 + Math.min(run.len - 1, 6);
+          const exit = taxiPath(s, rollEnd, g.stand, run) ?? taxiPath(s, rollEnd, g.stand);
+          if (!exit) continue;
+          const path: number[] = [];
+          for (let i = run.row * s.w + run.x0; i < rollEnd; i++) path.push(i);
+          path.push(...exit);
+          if (!best || path.length < bestPath.length) {
+            best = run;
+            bestPath = path;
+          }
         }
-        const path: number[] = [];
-        for (let i = run.row * s.w + run.x0; i < rollEnd; i++) path.push(i);
-        path.push(...exit);
+        if (!best) {
+          if (!anyBusy) cancelFlight(s, f, "no taxiway route to the gate");
+          break; // otherwise hold until a runway frees up
+        }
         f.stand = g.stand;
-        f.runwayRow = run.row;
-        f.runwayX0 = run.x0;
-        f.runwayX1 = run.x1;
-        f.path = path;
+        f.runwayRow = best.row;
+        f.runwayX0 = best.x0;
+        f.runwayX1 = best.x1;
+        f.runwayKey = runKey(best);
+        f.path = bestPath;
         f.pathIdx = 0;
-        f.x = run.x0 - 14;
-        f.y = run.row;
+        f.x = best.x0 - 14;
+        f.y = best.row;
         f.heading = 0;
         f.speed = 14;
         f.onRunway = true;
         f.state = "landing";
-        s.runwayLock = f.id;
+        s.runwayLocks[f.runwayKey] = f.id;
         break;
       }
       case "landing": {
@@ -724,8 +756,7 @@ function updateFlights(s: GameState, a: Analysis, dt: number) {
         const under = s.tiles[Math.round(f.y) * s.w + Math.round(f.x)];
         const offRunway = f.x >= f.runwayX0 && (!under || under.type !== "runway");
         if (offRunway || end) {
-          if (s.runwayLock === f.id) s.runwayLock = null;
-          f.onRunway = false;
+          unlockRunway(s, f);
           f.speed = TAXI_SPEED;
           f.state = "taxiIn";
         }
@@ -785,8 +816,24 @@ function updateFlights(s: GameState, a: Analysis, dt: number) {
             addEvent(s, `${f.code} left ${remaining} passenger${remaining === 1 ? "" : "s"} behind`, "bad");
           }
           settleContractFlight(s, f, remaining === 0);
-          const start = f.runwayRow * s.w + f.runwayX0;
-          const path = taxiPath(s, f.stand, start);
+          // depart from the runway with the shortest taxi, avoiding busy ones when possible
+          const g = a.gateByIdx.get(f.gate);
+          let path: number[] | null = null;
+          let bestCost = Infinity;
+          for (const run of g ? g.runways : []) {
+            if (run.len < def.minRunway) continue;
+            const candidate = taxiPath(s, f.stand, run.row * s.w + run.x0);
+            if (!candidate) continue;
+            const cost = candidate.length + (s.runwayLocks[runKey(run)] !== undefined ? 12 : 0);
+            if (cost < bestCost) {
+              bestCost = cost;
+              path = candidate;
+              f.runwayRow = run.row;
+              f.runwayX0 = run.x0;
+              f.runwayX1 = run.x1;
+              f.runwayKey = runKey(run);
+            }
+          }
           releaseGate(s, f);
           if (!path) {
             f.done = true;
@@ -801,14 +848,19 @@ function updateFlights(s: GameState, a: Analysis, dt: number) {
       }
       case "taxiOut": {
         const next = f.path[f.pathIdx];
-        if (next !== undefined && s.tiles[next].type === "runway" && s.runwayLock !== f.id) {
-          if (s.runwayLock !== null) break; // hold short
-          s.runwayLock = f.id;
-          f.onRunway = true;
+        if (next !== undefined) {
+          const nx = next % s.w;
+          const ny = (next - nx) / s.w;
+          const mine = ny === f.runwayRow && nx >= f.runwayX0 && nx <= f.runwayX1;
+          if (mine && s.runwayLocks[f.runwayKey] !== f.id) {
+            if (s.runwayLocks[f.runwayKey] !== undefined) break; // hold short
+            s.runwayLocks[f.runwayKey] = f.id;
+            f.onRunway = true;
+          }
         }
         if (followPath(s, f, dt)) {
-          if (s.runwayLock === null) s.runwayLock = f.id;
-          if (s.runwayLock !== f.id) break;
+          if (s.runwayLocks[f.runwayKey] === undefined) s.runwayLocks[f.runwayKey] = f.id;
+          if (s.runwayLocks[f.runwayKey] !== f.id) break;
           f.onRunway = true;
           f.state = "takeoff";
           f.speed = 1.5;
@@ -819,16 +871,17 @@ function updateFlights(s: GameState, a: Analysis, dt: number) {
         turnToward(f, 0, dt);
         f.speed += 14 * dt;
         f.x += f.speed * dt;
-        if (f.x > f.runwayX1 + 2 && s.runwayLock === f.id) {
-          s.runwayLock = null;
-          f.onRunway = false;
-        }
+        if (f.x > f.runwayX1 + 2) unlockRunway(s, f);
         if (f.x > s.w + 6) f.done = true;
         break;
       }
     }
   }
-  if (s.runwayLock !== null && !s.flights.some((f) => f.id === s.runwayLock && !f.done)) s.runwayLock = null;
+  // drop locks held by flights that no longer exist
+  for (const key of Object.keys(s.runwayLocks)) {
+    const id = s.runwayLocks[Number(key)];
+    if (!s.flights.some((f) => f.id === id && !f.done)) delete s.runwayLocks[Number(key)];
+  }
 }
 
 function faceGate(s: GameState, f: Flight, dt: number) {

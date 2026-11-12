@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { tileInfo } from "@/game/analysis";
 import { BUILD } from "@/game/constants";
 import { buildBlocker } from "@/game/simulation";
+import AirportPicker from "./AirportPicker";
 import BuildMenu from "./BuildMenu";
 import { money } from "./format";
 import Game3D from "./Game3D";
@@ -123,7 +124,8 @@ export default function Game() {
         <SidePanel s={s} />
       </div>
       <BuildMenu s={s} />
-      {pointer && <Tooltip pointer={pointer} />}
+      {pointer && !store.picker && <Tooltip pointer={pointer} />}
+      {store.picker && <AirportPicker current={s.name} />}
     </div>
   );
 }

@@ -24,7 +24,7 @@ const TAIL_COLORS = ["#16a34a", "#2563eb", "#b91c1c"];
 const CAR_COLORS = ["#ef4444", "#3b82f6", "#f8fafc", "#111827", "#f59e0b", "#10b981"];
 const MAX_PAX = 3000;
 /** planes are drawn a bit larger than their 2D footprint so they read well in 3D */
-const PLANE_SCALE = 1.3;
+const PLANE_SCALE = 1.15;
 
 function rng(seed: number) {
   let a = seed >>> 0;
@@ -102,6 +102,7 @@ export class Scene3D {
   private staticGroup = new THREE.Group();
   private labelGroup = new THREE.Group();
   private staticVersion = -1;
+  private framedState: GameState | null = null;
   private routeLine: THREE.Line | null = null;
 
   private paxBody: THREE.InstancedMesh;
@@ -798,6 +799,35 @@ export class Scene3D {
     this.camera.updateProjectionMatrix();
   }
 
+  /** point the camera at whatever is built, sized to fit */
+  private frame(s: GameState) {
+    let x0 = Infinity;
+    let x1 = -Infinity;
+    let z0 = Infinity;
+    let z1 = -Infinity;
+    for (let i = 0; i < s.tiles.length; i++) {
+      if (s.tiles[i].type === "empty") continue;
+      const x = i % s.w;
+      const z = Math.floor(i / s.w);
+      x0 = Math.min(x0, x);
+      x1 = Math.max(x1, x);
+      z0 = Math.min(z0, z);
+      z1 = Math.max(z1, z);
+    }
+    if (!isFinite(x0)) {
+      x0 = 10;
+      x1 = this.gw - 10;
+      z0 = 6;
+      z1 = this.gh - 6;
+    }
+    const cx = (x0 + x1) / 2;
+    const cz = (z0 + z1) / 2;
+    const d = Math.max(x1 - x0, (z1 - z0) * 1.5) * 0.74 + 10;
+    this.controls.target.set(cx, 0, cz);
+    this.camera.position.set(cx, d * 0.62, cz + d * 0.8);
+    this.controls.update();
+  }
+
   /** tile index under a screen point, or -1 */
   pick(clientX: number, clientY: number): number {
     const r = this.renderer.domElement.getBoundingClientRect();
@@ -813,6 +843,12 @@ export class Scene3D {
 
   render(s: GameState, view: View3D, dt: number) {
     const a = getAnalysis(s);
+    if (this.framedState !== s) {
+      // a different airport was loaded
+      this.framedState = s;
+      this.staticVersion = -1;
+      this.frame(s);
+    }
     if (this.staticVersion !== s.version) {
       this.staticVersion = s.version;
       this.rebuildStatic(s, a);

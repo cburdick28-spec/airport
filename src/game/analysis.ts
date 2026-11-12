@@ -83,6 +83,7 @@ export function getAnalysis(s: GameState): Analysis {
       }
     }
     let runway: RunwayRun | null = null;
+    const reachable: RunwayRun[] = [];
     if (stand < 0) {
       issues.push("No taxiway next to gate");
     } else {
@@ -96,6 +97,7 @@ export function getAnalysis(s: GameState): Analysis {
             break;
           }
         }
+        if (touches) reachable.push(r);
         if (touches && (!runway || r.len > runway.len)) runway = r;
       }
       if (!runway) issues.push("No runway access");
@@ -134,7 +136,7 @@ export function getAnalysis(s: GameState): Analysis {
       if (level >= 3 && s.tier < 3) issues.push("Wide-body flights require Tier 3 Airport");
     }
 
-    gates.push({ idx, name: "G" + (n + 1), level, stand, runway, issues, functional, maxClass, parking: reachParking });
+    gates.push({ idx, name: "G" + (n + 1), level, stand, runway, runways: reachable, issues, functional, maxClass, parking: reachParking });
   });
 
   const classStatus = buildClassStatus(s, gates, parking, checkins, tsas, customs, runways);

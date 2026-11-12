@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:sim": "tsx scripts/sim-test.ts"
+    "test:sim": "tsx scripts/sim-test.ts",
+    "test:scenarios": "tsx scripts/scenario-test.ts"
   },
   "dependencies": {
     "next": "16.4.6",

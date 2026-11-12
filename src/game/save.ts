@@ -28,6 +28,7 @@ interface SaveData {
   nextOffer?: number;
   contractsCompleted?: number;
   nextId?: number;
+  name?: string;
 }
 
 export function serialize(s: GameState): string {
@@ -50,6 +51,7 @@ export function serialize(s: GameState): string {
     nextOffer: s.nextOffer,
     contractsCompleted: s.contractsCompleted,
     nextId: s.nextId,
+    name: s.name,
   };
   return JSON.stringify(data);
 }
@@ -69,6 +71,7 @@ export function deserialize(json: string): GameState | null {
     s.marketingUntil = d.marketingUntil;
     s.flightsHandled = d.flightsHandled ?? 0;
     s.missedFlights = d.missedFlights ?? 0;
+    s.name = d.name ?? "My Airport";
     s.contracts = d.contracts ?? [];
     s.contractOffers = d.contractOffers ?? [];
     s.nextOffer = d.nextOffer ?? s.time;
