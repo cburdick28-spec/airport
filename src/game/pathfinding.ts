@@ -3,6 +3,7 @@
 // layout changes) and simply walk downhill. Shuttle stops add ride edges to the graph.
 // Planes use a plain BFS over runway + taxiway tiles.
 
+import { runHas } from "./runways";
 import type { GameState, PathNode, RunwayRun, TileType } from "./types";
 
 const WALKABLE: Record<TileType, boolean> = {
@@ -253,7 +254,7 @@ export function derivePath(s: GameState, field: Float64Array, from: number): Pat
 
 /**
  * BFS over runway/taxiway tiles. When `oneWay` is given, tiles on that runway can
- * only be travelled left-to-right (used for the landing roll so planes never U-turn).
+ * only be travelled in its landing direction (so planes never U-turn on the roll-out).
  */
 export function taxiPath(s: GameState, from: number, to: number, oneWay?: RunwayRun): number[] | null {
   if (from === to) return [from];
@@ -267,8 +268,9 @@ export function taxiPath(s: GameState, from: number, to: number, oneWay?: Runway
     if (!oneWay) return false;
     const x = i % s.w;
     const y = (i - x) / s.w;
-    return y === oneWay.row && x >= oneWay.x0 && x <= oneWay.x1;
+    return runHas(oneWay, x, y);
   };
+  const fwd = oneWay ? (oneWay.vertical ? s.w : 1) : 0;
   for (let head = 0; head < queue.length; head++) {
     const cur = queue[head];
     const cnt = neighbors(s, cur, nb);
@@ -276,7 +278,7 @@ export function taxiPath(s: GameState, from: number, to: number, oneWay?: Runway
       const v = nb[k];
       if (seen[v] || !isTaxi(s.tiles[v].type)) continue;
       // no rolling backwards (or re-entering) on the landing runway
-      if (oneWay && onRun(v) && !(onRun(cur) && v === cur + 1)) continue;
+      if (oneWay && onRun(v) && !(onRun(cur) && v === cur + fwd)) continue;
       seen[v] = 1;
       prev[v] = cur;
       if (v === to) {

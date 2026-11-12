@@ -33,7 +33,9 @@ The game opens on a working starter airfield. Blue dots are departing passengers
 
 Hover any tile to see why it isn't working ("Needs TSA connection", "No runway access", and so on). The side panel shows what each flight class is waiting on.
 
-**Pre-built airports:** the Airports button loads ready-made, working layouts: LaGuardia, JFK, LAX, Atlanta, the starter airfield, or a blank field. They are simplified versions of the real airports. Runways only run left to right in this engine, so crossing runways appear as parallel ones.
+**Pre-built airports:** the Airports button loads ready-made, working layouts: LaGuardia, JFK, LAX, Atlanta, the starter airfield, or a blank field. Their runway positions, lengths and crossings are taken from real runway end coordinates ([OurAirports](https://github.com/davidmegginson/ourairports-data) open data), rotated so the runways line up with the grid. Terminals and taxiways are simplified by hand.
+
+**Runways:** build them in a straight line, left to right or top to bottom. Horizontal runways are used west to east and vertical ones north to south. Runways can cross, but crossing runways can only be used one at a time.
 
 **Airline contracts:** airlines offer deals in the side panel (for example "6 regional flights in 8h"). Signed contracts send guaranteed flights and pay a bonus when finished. Leaving passengers behind costs a fine, and missing the deadline costs a penalty.
 
@@ -49,6 +51,7 @@ src/
     types.ts       data types
     constants.ts   balance numbers: costs, plane classes, tiers
     pathfinding.ts passenger distance fields + aircraft taxi routes
+    runways.ts     runway detection, crossings and geometry helpers
     analysis.ts    gate diagnostics, tier checklist, tooltips
     simulation.ts  game loop step, flights, passengers, buses, economy, build actions
     starter.ts     the pre-built tutorial airport

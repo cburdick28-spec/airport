@@ -3,25 +3,10 @@
 
 import { BUILD, GATE_SIZE, PARKING_SPOTS, PLANES, SERVICE_TIME, TIER2_PAX, TIER2_SAT, TIER3_PAX } from "./constants";
 import { fieldTo, isWalkable, neighbors, shuttleActive, taxiReach } from "./pathfinding";
+import { findRunways, runHas, runIdx } from "./runways";
 import type { Analysis, ClassStatus, GameState, GateInfo, RunwayRun, TileInfo } from "./types";
 
 const cache = new WeakMap<GameState, Analysis>();
-
-export function findRunways(s: GameState): RunwayRun[] {
-  const runs: RunwayRun[] = [];
-  for (let y = 0; y < s.h; y++) {
-    let start = -1;
-    for (let x = 0; x <= s.w; x++) {
-      const isRw = x < s.w && s.tiles[y * s.w + x].type === "runway";
-      if (isRw && start < 0) start = x;
-      if (!isRw && start >= 0) {
-        runs.push({ row: y, x0: start, x1: x - 1, len: x - start });
-        start = -1;
-      }
-    }
-  }
-  return runs;
-}
 
 function anyFinite(field: Float64Array, list: number[]): boolean {
   for (const i of list) if (isFinite(field[i])) return true;
@@ -91,8 +76,8 @@ export function getAnalysis(s: GameState): Analysis {
       const reach = taxiReach(s, stand);
       for (const r of runways) {
         let touches = false;
-        for (let x = r.x0; x <= r.x1; x++) {
-          if (reach[r.row * s.w + x]) {
+        for (let k = r.a0; k <= r.a1; k++) {
+          if (reach[runIdx(s, r, k)]) {
             touches = true;
             break;
           }
@@ -102,7 +87,7 @@ export function getAnalysis(s: GameState): Analysis {
       }
       if (!runway) issues.push("No runway access");
       else if (runway.len < PLANES[0].minRunway)
-        issues.push(`Runway too short (${runway.len}/${PLANES[0].minRunway} tiles, left to right)`);
+        issues.push(`Runway too short (${runway.len}/${PLANES[0].minRunway} tiles in a straight line)`);
     }
 
     // --- landside ----------------------------------------------------------
@@ -176,7 +161,7 @@ function buildClassStatus(
   else if (checkins.length === 0) reason = "Build a Check-in Desk";
   else if (tsas.length === 0) reason = "Build a TSA Checkpoint";
   else if (gates.length === 0) reason = "Build a Small Gate";
-  else if (runways.length === 0) reason = "Build a Runway (8+ tiles, left to right)";
+  else if (runways.length === 0) reason = "Build a Runway (8+ tiles in a straight line)";
   else if (!gates.some((g) => g.functional)) reason = `${gates[0].name}: ${gates[0].issues[0]}`;
   out.push({ ok: reason === "", reason: reason || "Regional flights operating" });
 
@@ -253,13 +238,16 @@ export function tileInfo(s: GameState, idx: number): TileInfo | null {
       break;
     }
     case "runway": {
-      const run = a.runways.find((r) => r.row === y && x >= r.x0 && x <= r.x1);
+      const here = a.runways.filter((r) => runHas(r, x, y));
+      const run = here.sort((p, q) => q.len - p.len)[0];
       const len = run ? run.len : 1;
       const ok = PLANES.filter((p) => len >= p.minRunway).map((p) => p.short);
       lines.push(`${len} tiles long · handles: ${ok.length ? ok.join(", ") : "nothing yet"}`);
       const next = PLANES.find((p) => len < p.minRunway);
       if (next) lines.push(`${next.name} needs ${next.minRunway} tiles`);
-      if (len < PLANES[0].minRunway) issues.push("Too short. Runways must run left to right");
+      if (here.length > 1) lines.push("Runways cross here: only one can be in use at a time");
+      else if (run) lines.push(run.vertical ? "Planes use it north to south" : "Planes use it west to east");
+      if (len < PLANES[0].minRunway) issues.push("Too short: needs 8+ tiles in a straight line");
       break;
     }
     case "taxiway": {

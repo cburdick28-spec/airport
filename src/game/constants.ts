@@ -1,7 +1,7 @@
 import type { TileType } from "./types";
 
-export const GRID_W = 44;
-export const GRID_H = 28;
+export const GRID_W = 64;
+export const GRID_H = 44;
 
 /** game minutes that pass per real second at 1x speed */
 export const BASE_RATE = 2;
@@ -9,7 +9,7 @@ export const BASE_RATE = 2;
 export const MAX_STEP = 0.05;
 
 export const START_TIME = 6 * 60;
-export const SAVE_KEY = "airport-tycoon-save-v1";
+export const SAVE_KEY = "airport-tycoon-save-v2";
 
 export const WALK_SPEED = 1.7; // tiles per game minute
 export const TAXI_SPEED = 2.4;
@@ -147,7 +147,7 @@ export const BUILD: Record<Exclude<TileType, "empty">, BuildDef> = {
   runway: {
     name: "Runway",
     category: "airside",
-    desc: "Runs left to right. 8 tiles for regional, 12 for narrow-body, 18 for wide-body.",
+    desc: "Straight line, across or up-down. 8 tiles for regional, 12 narrow-body, 18 wide-body. Runways can cross.",
     cost: [500],
     upkeep: [2],
     maxLevel: 1,

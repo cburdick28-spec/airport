@@ -51,8 +51,8 @@ export default function AirportPicker({ current }: { current: string }) {
           ))}
         </div>
         <p className="mt-4 text-xs text-slate-500">
-          Layouts are simplified versions of the real airports. Runways in this game run left to right, so crossing
-          runways are shown as parallel ones.
+          Runway positions, lengths and crossings come from real runway coordinates (OurAirports open data), rotated to
+          fit the grid. Terminals and taxiways are simplified by hand.
         </p>
       </div>
     </div>

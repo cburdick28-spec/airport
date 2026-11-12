@@ -7,6 +7,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { getAnalysis } from "@/game/analysis";
 import { PLANES } from "@/game/constants";
+import { runAlong, runwayMarks } from "@/game/runways";
 import { buildBlocker } from "@/game/simulation";
 import type { Analysis, Flight, GameState, TileType } from "@/game/types";
 import type { Tool } from "./renderer";
@@ -147,7 +148,7 @@ export class Scene3D {
     const cx = (gw - 1) / 2;
     const cz = (gh - 1) / 2;
     this.scene.background = this.skyDay.clone();
-    this.scene.fog = new THREE.Fog(this.skyDay.clone(), 70, 190);
+    this.scene.fog = new THREE.Fog(this.skyDay.clone(), 110, 300);
 
     // start framed on the tutorial terminal, looking across the apron to the runway
     this.camera.position.set(15.5, 10.5, 21.5);
@@ -158,7 +159,7 @@ export class Scene3D {
     this.controls.screenSpacePanning = false;
     this.controls.zoomToCursor = true;
     this.controls.minDistance = 6;
-    this.controls.maxDistance = 95;
+    this.controls.maxDistance = 140;
     this.controls.maxPolarAngle = 1.38;
     this.controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
     this.controls.update();
@@ -168,10 +169,10 @@ export class Scene3D {
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
     const sc = this.sun.shadow.camera;
-    sc.left = -34;
-    sc.right = 34;
-    sc.top = 30;
-    sc.bottom = -30;
+    sc.left = -(gw / 2 + 8);
+    sc.right = gw / 2 + 8;
+    sc.top = gh / 2 + 12;
+    sc.bottom = -(gh / 2 + 12);
     sc.near = 1;
     sc.far = 180;
     this.sun.shadow.bias = -0.0004;
@@ -295,7 +296,7 @@ export class Scene3D {
     // scenery trees outside the buildable area
     const b = new Batcher();
     const r = rng(1234);
-    for (let i = 0; i < 420; i++) {
+    for (let i = 0; i < 520; i++) {
       const x = -30 + r() * (this.gw + 60);
       const z = -26 + r() * (this.gh + 52);
       if (x > -2 && x < this.gw + 1 && z > -2 && z < this.gh + 1) continue;
@@ -331,6 +332,7 @@ export class Scene3D {
     const b = new Batcher();
     const M = this.mats;
     const w = s.w;
+    const marks = runwayMarks(s, a.runways);
     const type = (x: number, z: number): TileType =>
       x < 0 || z < 0 || x >= s.w || z >= s.h ? "empty" : s.tiles[z * w + x].type;
     const box = (mk: string, x: number, y: number, z: number, sx: number, sy: number, sz: number, ry = 0, cast?: boolean) =>
@@ -369,12 +371,18 @@ export class Scene3D {
         switch (t.type) {
           case "runway": {
             box("runway", x, 0.03, z, 1, 0.06, 1);
-            const left = type(x - 1, z) === "runway";
-            const right = type(x + 1, z) === "runway";
-            if (left && right) box("white", x, 0.064, z, 0.5, 0.01, 0.07, 0, false);
-            else for (let i = 0; i < 4; i++) box("white", x, 0.064, z - 0.3 + i * 0.2, 0.45, 0.01, 0.09, 0, false);
-            for (const side of [-0.46, 0.46])
-              b.add("ball", this.ball, "rwlight", M.rwlight, x, 0.08, z + side, 0.09, 0.09, 0.09, 0, false);
+            const o = marks.orient[idx];
+            if (o === 1 || o === 2) {
+              const v = o === 2;
+              if (!marks.end[idx]) box("white", x, 0.064, z, v ? 0.07 : 0.5, 0.01, v ? 0.5 : 0.07, 0, false);
+              else
+                for (let i = 0; i < 4; i++) {
+                  const off = -0.3 + i * 0.2;
+                  box("white", x + (v ? off : 0), 0.064, z + (v ? 0 : off), v ? 0.09 : 0.45, 0.01, v ? 0.45 : 0.09, 0, false);
+                }
+              for (const side of [-0.46, 0.46])
+                b.add("ball", this.ball, "rwlight", M.rwlight, x + (v ? side : 0), 0.08, z + (v ? 0 : side), 0.09, 0.09, 0.09, 0, false);
+            }
             break;
           }
           case "taxiway": {
@@ -632,8 +640,9 @@ export class Scene3D {
     const L = PLANES[f.cls].size * PLANE_SCALE;
     let alt = 0;
     let pitch = 0;
-    if (f.state === "landing" && f.x < f.runwayX0) {
-      alt = Math.min(1, (f.runwayX0 - f.x) / 12);
+    const before = f.run ? f.run.a0 - runAlong(f.run, f.x, f.y) : 0;
+    if (f.state === "landing" && before > 0) {
+      alt = Math.min(1, before / 12);
       pitch = 0.05 + alt * 0.04;
     } else if (f.state === "takeoff") {
       alt = Math.max(0, (f.speed - 9) / 8);

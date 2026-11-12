@@ -91,11 +91,8 @@ export interface Flight {
   arrTotal: number;
   arrLeft: number;
   timer: number;
-  runwayRow: number;
-  runwayX0: number;
-  runwayX1: number;
-  /** lock key of the runway this flight is using */
-  runwayKey: number;
+  /** the runway this flight lands on / departs from */
+  run: RunwayRun | null;
   onRunway: boolean;
   done: boolean;
   /** id of the airline contract this flight counts toward (0 = none) */
@@ -185,11 +182,22 @@ export interface GameState {
   contractsCompleted: number;
 }
 
+/**
+ * A straight strip of runway tiles. Horizontal runways are used west to east,
+ * vertical ones north to south.
+ */
 export interface RunwayRun {
-  row: number;
-  x0: number;
-  x1: number;
+  vertical: boolean;
+  /** the row (horizontal) or column (vertical) the runway sits on */
+  line: number;
+  /** first and last position along the runway */
+  a0: number;
+  a1: number;
   len: number;
+  /** lock id */
+  key: number;
+  /** keys of runways that physically cross this one */
+  crosses: number[];
 }
 
 export interface GateInfo {

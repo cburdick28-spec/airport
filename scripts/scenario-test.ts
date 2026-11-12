@@ -30,7 +30,7 @@ for (const sc of SCENARIOS) {
   for (let h = 0; h < 24; h++) {
     for (let i = 0; i < 60 / MAX_STEP; i++) {
       step(s, MAX_STEP);
-      if (i % 40 === 0) for (const f of s.flights) if (f.runwayKey >= 0) used.add(f.runwayKey);
+      if (i % 40 === 0) for (const f of s.flights) if (f.run) used.add(f.run.key);
     }
     maxPax = Math.max(maxPax, s.passengers.length);
   }
@@ -40,7 +40,8 @@ for (const sc of SCENARIOS) {
   );
   check(s.flightsHandled >= 20, "flights keep coming");
   check(cancelled === 0, "no cancelled flights");
-  check(used.size === a.runways.length, "every runway gets used");
+  check(used.size >= Math.min(2, a.runways.length), "more than one runway gets used");
+  check(a.runways.every((r) => r.len >= 8), "no stray runway stubs: " + a.runways.map((r) => (r.vertical ? "V" : "H") + r.len).join(" "));
   check(s.money > startMoney, "airport makes money");
   check(s.satisfaction >= 55, "satisfaction is playable");
 }

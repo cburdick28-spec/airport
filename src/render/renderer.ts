@@ -2,6 +2,7 @@
 
 import { getAnalysis } from "@/game/analysis";
 import { PLANES } from "@/game/constants";
+import { runAlong, runwayMarks, type RunwayMarks } from "@/game/runways";
 import { buildBlocker } from "@/game/simulation";
 import type { Flight, GameState, TileType } from "@/game/types";
 
@@ -52,7 +53,7 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.closePath();
 }
 
-function drawTiles(ctx: CanvasRenderingContext2D, s: GameState, T: number) {
+function drawTiles(ctx: CanvasRenderingContext2D, s: GameState, T: number, marks: RunwayMarks) {
   const type = (x: number, y: number): TileType =>
     x < 0 || y < 0 || x >= s.w || y >= s.h ? "empty" : s.tiles[y * s.w + x].type;
 
@@ -110,14 +111,19 @@ function drawTiles(ctx: CanvasRenderingContext2D, s: GameState, T: number) {
         case "runway": {
           ctx.fillStyle = C.runway;
           ctx.fillRect(px, py, T, T);
-          const left = type(x - 1, y) === "runway";
-          const right = type(x + 1, y) === "runway";
-          ctx.fillStyle = "#f8fafc";
-          if (!left || !right) {
-            // threshold "piano keys"
-            for (let i = 0; i < 4; i++) ctx.fillRect(px + T * 0.3, py + T * (0.14 + i * 0.2), T * 0.4, T * 0.1);
-          } else {
-            ctx.fillRect(px + T * 0.25, cy - T * 0.04, T * 0.5, T * 0.08);
+          const o = marks.orient[y * s.w + x];
+          if (o === 1 || o === 2) {
+            ctx.save();
+            ctx.translate(cx, cy);
+            if (o === 2) ctx.rotate(Math.PI / 2);
+            ctx.fillStyle = "#f8fafc";
+            if (marks.end[y * s.w + x]) {
+              // threshold "piano keys"
+              for (let i = 0; i < 4; i++) ctx.fillRect(-T * 0.2, T * (-0.36 + i * 0.2), T * 0.4, T * 0.1);
+            } else {
+              ctx.fillRect(-T * 0.25, -T * 0.04, T * 0.5, T * 0.08);
+            }
+            ctx.restore();
           }
           break;
         }
@@ -178,7 +184,10 @@ function drawTiles(ctx: CanvasRenderingContext2D, s: GameState, T: number) {
 function drawPlane(ctx: CanvasRenderingContext2D, f: Flight, T: number) {
   const def = PLANES[f.cls];
   let alt = 0;
-  if (f.state === "landing" && f.x < f.runwayX0) alt = Math.min(1, (f.runwayX0 - f.x) / 12);
+  if (f.state === "landing" && f.run) {
+    const before = f.run.a0 - runAlong(f.run, f.x, f.y);
+    if (before > 0) alt = Math.min(1, before / 12);
+  }
   if (f.state === "takeoff") alt = Math.max(0, Math.min(1.4, (f.speed - 8) / 9));
   const L = def.size * T * (1 + alt * 0.25);
   const x = f.x * T + T / 2;
@@ -264,7 +273,7 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, view: View) 
   }
   ctx.stroke();
 
-  drawTiles(ctx, s, T);
+  drawTiles(ctx, s, T, runwayMarks(s, a.runways));
 
   // shuttle route
   if (a.shuttleActive) {
