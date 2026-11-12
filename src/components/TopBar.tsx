@@ -63,6 +63,13 @@ export default function TopBar({ s }: { s: GameState }) {
             </button>
           ))}
         </div>
+        <button
+          onClick={() => store.setView3d(!store.view3d)}
+          title="Switch between the 3D view and the lighter 2D map"
+          className="rounded-md border border-slate-600 bg-slate-800 px-3 py-1 text-sm font-semibold hover:bg-slate-700"
+        >
+          {store.view3d ? "2D map" : "3D view"}
+        </button>
         <div className="relative">
           <button
             onClick={() => {

@@ -3,7 +3,7 @@
 
 import { SAVE_KEY } from "./constants";
 import { addEvent, createEmptyState } from "./simulation";
-import type { GameState, TileType } from "./types";
+import type { Contract, GameState, TileType } from "./types";
 
 const TYPES: TileType[] = [
   "empty", "parking", "shuttle", "sidewalk", "floor", "checkin", "tsa", "customs", "gate", "runway", "taxiway",
@@ -23,6 +23,11 @@ interface SaveData {
   marketingUntil: number;
   flightsHandled: number;
   missedFlights: number;
+  contracts?: Contract[];
+  contractOffers?: Contract[];
+  nextOffer?: number;
+  contractsCompleted?: number;
+  nextId?: number;
 }
 
 export function serialize(s: GameState): string {
@@ -40,6 +45,11 @@ export function serialize(s: GameState): string {
     marketingUntil: s.marketingUntil,
     flightsHandled: s.flightsHandled,
     missedFlights: s.missedFlights,
+    contracts: s.contracts,
+    contractOffers: s.contractOffers,
+    nextOffer: s.nextOffer,
+    contractsCompleted: s.contractsCompleted,
+    nextId: s.nextId,
   };
   return JSON.stringify(data);
 }
@@ -59,6 +69,11 @@ export function deserialize(json: string): GameState | null {
     s.marketingUntil = d.marketingUntil;
     s.flightsHandled = d.flightsHandled ?? 0;
     s.missedFlights = d.missedFlights ?? 0;
+    s.contracts = d.contracts ?? [];
+    s.contractOffers = d.contractOffers ?? [];
+    s.nextOffer = d.nextOffer ?? s.time;
+    s.contractsCompleted = d.contractsCompleted ?? 0;
+    s.nextId = Math.max(s.nextId, d.nextId ?? 1);
     s.nextSchedule = s.time;
     s.nextHour = Math.floor(s.time / 60) * 60 + 60;
     s.version++;

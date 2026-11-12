@@ -101,7 +101,7 @@ export default function BuildMenu({ s }: { s: GameState }) {
           </button>
           <button
             onClick={() => store.setTool(null)}
-            title="Stop building and inspect tiles (Esc or right-click)"
+            title="Stop building and inspect tiles (Esc)"
             className={`rounded-md border px-3 py-1 text-sm font-semibold ${
               tool === null ? "border-sky-400 bg-sky-500/20" : "border-slate-600 hover:bg-slate-800"
             }`}

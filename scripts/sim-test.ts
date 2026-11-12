@@ -2,7 +2,7 @@
 import { getAnalysis } from "../src/game/analysis";
 import { MAX_STEP } from "../src/game/constants";
 import { deserialize, serialize } from "../src/game/save";
-import { build, createEmptyState, step, upgrade } from "../src/game/simulation";
+import { build, createEmptyState, signContract, step, upgrade } from "../src/game/simulation";
 import { createTutorialAirport } from "../src/game/starter";
 
 function assert(cond: unknown, msg: string) {
@@ -43,6 +43,16 @@ assert(s.served >= 200, "passengers served in 24h: " + s.served);
 assert(s.satisfaction >= 70, "satisfaction stays healthy: " + s.satisfaction.toFixed(1));
 assert(s.money > 30000, "tutorial airport is profitable: " + Math.round(s.money));
 assert(s.passengers.every((p) => isFinite(p.x) && isFinite(p.y)), "no NaN positions");
+
+// airline contracts
+assert(s.contractOffers.length === 3, "three contract offers on the board");
+const offer = [...s.contractOffers].sort((x, y) => y.hours / y.flights - x.hours / x.flights)[0];
+const before = s.money;
+assert(signContract(s, offer.id).ok && s.contracts.length === 1, `contract signed: ${offer.flights} flights in ${offer.hours}h`);
+run(s, offer.hours * 60 + 5);
+assert(s.contracts.every((c) => c.id !== offer.id), "contract resolved by its deadline");
+console.log(`  contract: completed=${s.contractsCompleted} money ${Math.round(before)} -> ${Math.round(s.money)}`);
+assert(s.contractsCompleted === 1, "tutorial airport can complete a regional contract");
 
 // tier progression
 s.money = 500000;

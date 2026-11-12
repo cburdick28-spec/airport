@@ -174,6 +174,18 @@ export const SERVICE_TIME: Record<"checkin" | "tsa" | "customs", number[]> = {
 export const PARKING_SPOTS = [12, 24, 40];
 
 export const AIRLINES = ["RG", "SKY", "NV", "AZ", "PL", "TW", "HX", "OC"];
+export const AIRLINE_NAMES: Record<string, string> = {
+  RG: "Ridgeline Air",
+  SKY: "Skyward",
+  NV: "Nova Jet",
+  AZ: "Azure Lines",
+  PL: "Polar Wings",
+  TW: "Tradewind",
+  HX: "Helix Airways",
+  OC: "Oceanic",
+};
+export const MAX_CONTRACTS = 2;
+export const OFFER_REFRESH = 6 * 60;
 export const CITIES: string[][] = [
   ["Cedar Falls", "Port Lyle", "Marlow", "Greyfield", "Ashby", "Tern Bay", "Dunmore"],
   ["Denver", "Chicago", "Atlanta", "Seattle", "Dallas", "Boston", "Miami", "Phoenix"],

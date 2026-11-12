@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { BASE_RATE, GRID_H, GRID_W, MAX_STEP } from "@/game/constants";
-import { saveGame } from "@/game/save";
-import { step } from "@/game/simulation";
+import { GRID_H, GRID_W } from "@/game/constants";
 import { render } from "@/render/renderer";
+import { startLoop } from "./loop";
 import { store } from "./store";
 
 interface Props {
@@ -39,48 +38,10 @@ export default function GameCanvas({ onPointer }: Props) {
     const ro = new ResizeObserver(resize);
     ro.observe(wrap);
 
-    let raf = 0;
-    let last = performance.now();
-    let uiTimer = 0;
-    let saveTimer = 0;
-    const frame = (now: number) => {
-      raf = requestAnimationFrame(frame);
-      const dtReal = Math.min(0.1, (now - last) / 1000);
-      last = now;
-      const s = store.state;
-      if (!s) return;
-
-      if (!store.paused) {
-        let gm = dtReal * BASE_RATE * store.speed;
-        while (gm > 1e-6) {
-          const d = Math.min(MAX_STEP, gm);
-          step(s, d);
-          gm -= d;
-        }
-      }
-
+    const stop = startLoop((s) => {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       render(ctx, s, { tile, hover: store.hover, tool: store.tool });
-
-      uiTimer += dtReal;
-      if (uiTimer > 0.2) {
-        uiTimer = 0;
-        // surface important engine events as toasts
-        const ev = s.events[s.events.length - 1];
-        if (ev && ev.id > store.lastEventId) {
-          store.lastEventId = ev.id;
-          if (ev.kind !== "info") store.flash = { text: ev.text, kind: ev.kind, until: now + 4000 };
-        }
-        if (store.flash && now > store.flash.until) store.flash = null;
-        store.bump();
-      }
-      saveTimer += dtReal;
-      if (saveTimer > 20) {
-        saveTimer = 0;
-        saveGame(s);
-      }
-    };
-    raf = requestAnimationFrame(frame);
+    });
 
     // ---- input ----
     let down = false;
@@ -130,13 +91,8 @@ export default function GameCanvas({ onPointer }: Props) {
     canvas.addEventListener("pointerleave", onLeave);
     canvas.addEventListener("contextmenu", onContext);
 
-    const onUnload = () => {
-      if (store.state) saveGame(store.state);
-    };
-    window.addEventListener("beforeunload", onUnload);
-
     return () => {
-      cancelAnimationFrame(raf);
+      stop();
       ro.disconnect();
       canvas.removeEventListener("pointerdown", onDown);
       canvas.removeEventListener("pointermove", onMove);
@@ -144,7 +100,6 @@ export default function GameCanvas({ onPointer }: Props) {
       canvas.removeEventListener("pointercancel", onUp);
       canvas.removeEventListener("pointerleave", onLeave);
       canvas.removeEventListener("contextmenu", onContext);
-      window.removeEventListener("beforeunload", onUnload);
     };
   }, [onPointer]);
 

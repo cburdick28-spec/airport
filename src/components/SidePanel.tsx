@@ -1,10 +1,11 @@
 "use client";
 
 import { getAnalysis, tierProgress } from "@/game/analysis";
-import { GATE_SIZE, PLANES, TIER_NAMES } from "@/game/constants";
+import { GATE_SIZE, MAX_CONTRACTS, PLANES, TIER_NAMES } from "@/game/constants";
 import { hourlyUpkeep, parkingUsed } from "@/game/simulation";
 import type { Flight, GameState } from "@/game/types";
 import { clock, money } from "./format";
+import { store } from "./store";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -74,6 +75,56 @@ export default function SidePanel({ s }: { s: GameState }) {
             ))}
           </ul>
         )}
+      </Section>
+
+      <Section title={`Airline contracts (${s.contracts.length}/${MAX_CONTRACTS})`}>
+        {s.contracts.map((c) => {
+          const left = Math.max(0, c.deadline - s.time);
+          return (
+            <div key={c.id} className="mb-2 rounded border border-sky-700 bg-sky-950/60 px-2 py-1.5">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold">{c.airlineName}</span>
+                <span className={`text-xs tabular-nums ${left < 120 ? "text-rose-300" : "text-slate-300"}`}>
+                  {Math.floor(left / 60)}h {Math.floor(left % 60)}m left
+                </span>
+              </div>
+              <div className="text-xs text-slate-300">
+                {PLANES[c.cls].short} · {c.done}/{c.flights} on-time flights · {money(c.reward)} bonus
+              </div>
+              <div className="mt-1 h-1.5 overflow-hidden rounded bg-slate-700">
+                <div className="h-full bg-sky-400" style={{ width: `${(c.done / c.flights) * 100}%` }} />
+              </div>
+            </div>
+          );
+        })}
+        {s.contractOffers.length === 0 && s.contracts.length === 0 && (
+          <p className="text-xs text-slate-400">No offers right now. Airlines check back every 6 hours.</p>
+        )}
+        {s.contractOffers.map((c) => (
+          <div key={c.id} className="mb-2 rounded bg-slate-800 px-2 py-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-semibold">{c.airlineName}</span>
+              <button
+                onClick={() => store.sign(c.id)}
+                disabled={s.contracts.length >= MAX_CONTRACTS}
+                className="rounded bg-sky-500 px-2 py-0.5 text-xs font-bold text-white hover:bg-sky-400 disabled:opacity-40"
+              >
+                Sign
+              </button>
+            </div>
+            <div className="text-xs text-slate-300">
+              {c.flights} {PLANES[c.cls].short.toLowerCase()} flights in {c.hours}h
+            </div>
+            <div className="text-xs">
+              <span className="text-emerald-300">+{money(c.reward)}</span>
+              <span className="text-slate-500"> win · </span>
+              <span className="text-rose-300">-{money(c.penalty)}</span>
+              <span className="text-slate-500"> fail · </span>
+              <span className="text-rose-300">-{money(c.latePenalty)}</span>
+              <span className="text-slate-500"> per late flight</span>
+            </div>
+          </div>
+        ))}
       </Section>
 
       <Section title="Gates and flights">

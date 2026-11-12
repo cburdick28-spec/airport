@@ -3,6 +3,7 @@
 
 import { getAnalysis } from "./analysis";
 import {
+  AIRLINE_NAMES,
   AIRLINES,
   BUILD,
   BUS_CAPACITY,
@@ -19,6 +20,8 @@ import {
   MARKETING_BOOST,
   MARKETING_COST,
   MARKETING_HOURS,
+  MAX_CONTRACTS,
+  OFFER_REFRESH,
   PARKING_FEE,
   PLANES,
   REFUND_RATE,
@@ -34,7 +37,7 @@ import {
   WALK_SPEED,
 } from "./constants";
 import { derivePath, distanceField, distFrom, fieldTo, taxiPath } from "./pathfinding";
-import type { Analysis, Flight, GameState, Passenger, PlaneClass, StepKind, TileType } from "./types";
+import type { Analysis, Contract, Flight, GameState, Passenger, PlaneClass, StepKind, TileType } from "./types";
 
 // ---------------------------------------------------------------------------
 // State
@@ -74,6 +77,10 @@ export function createEmptyState(money = 60000): GameState {
     flightsHandled: 0,
     missedFlights: 0,
     events: [],
+    contractOffers: [],
+    contracts: [],
+    nextOffer: START_TIME,
+    contractsCompleted: 0,
   };
 }
 
@@ -525,9 +532,26 @@ function scheduleFlights(s: GameState, a: Analysis) {
     for (let c = 0; c <= g.maxClass; c++) if (PLANES[c].tier <= s.tier) allowed.push(c);
     if (allowed.length === 0) continue;
     const top = allowed[allowed.length - 1];
-    const first = Math.random() < 0.7 ? top : allowed[Math.floor(Math.random() * allowed.length)];
     const free = a.parkingSpots - used;
     let created = false;
+
+    // contract flights come first: the airline guarantees the passengers
+    const contract = s.contracts.find(
+      (c) => allowed.includes(c.cls) && c.done + contractFlightsInProgress(s, c.id) < c.flights,
+    );
+    if (contract) {
+      const def = PLANES[contract.cls];
+      const booked = Math.min(Math.round(def.seats * (0.8 + 0.2 * Math.random())), free);
+      if (booked >= Math.ceil(def.seats * 0.35)) {
+        createFlight(s, g.idx, g.stand, contract.cls, booked, contract);
+        s.demandTokens = Math.max(0, s.demandTokens - booked);
+        used += booked;
+        delete s.gateNote[g.idx];
+        continue;
+      }
+    }
+
+    const first = Math.random() < 0.7 ? top : allowed[Math.floor(Math.random() * allowed.length)];
     for (let c = first; c >= 0; c--) {
       const def = PLANES[c];
       const want = Math.round(def.seats * (0.7 + 0.3 * Math.random()));
@@ -547,7 +571,7 @@ function scheduleFlights(s: GameState, a: Analysis) {
   }
 }
 
-function createFlight(s: GameState, gate: number, stand: number, cls: PlaneClass, booked: number) {
+function createFlight(s: GameState, gate: number, stand: number, cls: PlaneClass, booked: number, contract?: Contract) {
   const def = PLANES[cls];
   const spawnTimes: number[] = [];
   for (let i = 0; i < booked; i++) spawnTimes.push(s.time + Math.random() * SPAWN_WINDOW);
@@ -555,7 +579,10 @@ function createFlight(s: GameState, gate: number, stand: number, cls: PlaneClass
   const cities = CITIES[cls];
   const f: Flight = {
     id: s.nextId++,
-    code: AIRLINES[Math.floor(Math.random() * AIRLINES.length)] + " " + (100 + Math.floor(Math.random() * 900)),
+    code:
+      (contract ? contract.airline : AIRLINES[Math.floor(Math.random() * AIRLINES.length)]) +
+      " " +
+      (100 + Math.floor(Math.random() * 900)),
     city: cities[Math.floor(Math.random() * cities.length)],
     cls,
     gate,
@@ -581,6 +608,7 @@ function createFlight(s: GameState, gate: number, stand: number, cls: PlaneClass
     runwayX1: 0,
     onRunway: false,
     done: false,
+    contractId: contract ? contract.id : 0,
   };
   f.arrLeft = f.arrTotal;
   s.flights.push(f);
@@ -756,6 +784,7 @@ function updateFlights(s: GameState, a: Analysis, dt: number) {
             s.missedFlights += remaining;
             addEvent(s, `${f.code} left ${remaining} passenger${remaining === 1 ? "" : "s"} behind`, "bad");
           }
+          settleContractFlight(s, f, remaining === 0);
           const start = f.runwayRow * s.w + f.runwayX0;
           const path = taxiPath(s, f.stand, start);
           releaseGate(s, f);
@@ -809,6 +838,93 @@ function faceGate(s: GameState, f: Flight, dt: number) {
 }
 
 // ---------------------------------------------------------------------------
+// Airline contracts
+// ---------------------------------------------------------------------------
+
+function contractFlightsInProgress(s: GameState, id: number): number {
+  let n = 0;
+  for (const f of s.flights)
+    if (!f.done && f.contractId === id && f.state !== "taxiOut" && f.state !== "takeoff") n++;
+  return n;
+}
+
+function makeOffer(s: GameState): Contract {
+  const maxCls = s.tier - 1;
+  const cls = Math.floor(Math.random() * (maxCls + 1)) as PlaneClass;
+  const def = PLANES[cls];
+  const airline = AIRLINES[Math.floor(Math.random() * AIRLINES.length)];
+  const flights = [5, 4, 3][cls] + Math.floor(Math.random() * 4);
+  const hours = Math.round(flights * (1.0 + Math.random() * 0.7));
+  const reward = Math.round((flights * def.landingFee * (0.9 + Math.random() * 0.6)) / 100) * 100;
+  return {
+    id: s.nextId++,
+    airline,
+    airlineName: AIRLINE_NAMES[airline],
+    cls,
+    flights,
+    done: 0,
+    hours,
+    deadline: 0,
+    bonusPerFlight: Math.round(def.landingFee * 0.3),
+    reward,
+    penalty: Math.round((reward * 0.5) / 100) * 100,
+    latePenalty: Math.round(def.landingFee * 0.5),
+  };
+}
+
+function updateContracts(s: GameState) {
+  if (s.time >= s.nextOffer) {
+    s.nextOffer = s.time + OFFER_REFRESH;
+    const offers: Contract[] = [];
+    for (let tries = 0; offers.length < 3 && tries < 30; tries++) {
+      const o = makeOffer(s);
+      if (!offers.some((x) => x.airline === o.airline) && !s.contracts.some((x) => x.airline === o.airline)) offers.push(o);
+    }
+    s.contractOffers = offers;
+  }
+  for (const c of s.contracts) {
+    if (s.time > c.deadline) {
+      s.money -= c.penalty;
+      s.expenseThisHour += c.penalty;
+      addEvent(s, `${c.airlineName} contract failed: ${c.done}/${c.flights} flights. Penalty $${c.penalty.toLocaleString()}.`, "bad");
+      c.done = -1;
+    }
+  }
+  if (s.contracts.some((c) => c.done < 0)) s.contracts = s.contracts.filter((c) => c.done >= 0);
+}
+
+function settleContractFlight(s: GameState, f: Flight, onTime: boolean) {
+  if (!f.contractId) return;
+  const c = s.contracts.find((x) => x.id === f.contractId);
+  if (!c) return;
+  if (!onTime) {
+    s.money -= c.latePenalty;
+    s.expenseThisHour += c.latePenalty;
+    addEvent(s, `${c.airlineName} fined you $${c.latePenalty.toLocaleString()}: ${f.code} left passengers behind`, "bad");
+    return;
+  }
+  c.done++;
+  earn(s, c.bonusPerFlight);
+  if (c.done >= c.flights) {
+    earn(s, c.reward);
+    s.contractsCompleted++;
+    s.contracts = s.contracts.filter((x) => x !== c);
+    addEvent(s, `${c.airlineName} contract complete! Bonus $${c.reward.toLocaleString()}.`, "good");
+  }
+}
+
+export function signContract(s: GameState, id: number): ActionResult {
+  const c = s.contractOffers.find((x) => x.id === id);
+  if (!c) return { ok: false, msg: "Offer expired" };
+  if (s.contracts.length >= MAX_CONTRACTS) return { ok: false, msg: `Max ${MAX_CONTRACTS} contracts at once` };
+  if (PLANES[c.cls].tier > s.tier) return { ok: false, msg: "Airport tier too low" };
+  s.contractOffers = s.contractOffers.filter((x) => x !== c);
+  c.deadline = s.time + c.hours * 60;
+  s.contracts.push(c);
+  return { ok: true, msg: `Signed with ${c.airlineName}: ${c.flights} flights in ${c.hours}h` };
+}
+
+// ---------------------------------------------------------------------------
 // Tiers + economy
 // ---------------------------------------------------------------------------
 
@@ -850,6 +966,7 @@ export function step(s: GameState, dt: number) {
   if (s.time >= s.nextSchedule) {
     s.nextSchedule = s.time + 2;
     checkTier(s, a);
+    updateContracts(s);
     a = getAnalysis(s);
     scheduleFlights(s, a);
   }

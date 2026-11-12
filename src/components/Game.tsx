@@ -6,6 +6,7 @@ import { BUILD } from "@/game/constants";
 import { buildBlocker } from "@/game/simulation";
 import BuildMenu from "./BuildMenu";
 import { money } from "./format";
+import Game3D from "./Game3D";
 import GameCanvas from "./GameCanvas";
 import SidePanel from "./SidePanel";
 import { store } from "./store";
@@ -94,8 +95,13 @@ export default function Game() {
     <div className="flex h-dvh flex-col bg-slate-900 text-slate-100">
       <TopBar s={s} />
       <div className="flex min-h-0 flex-1">
-        <main className="relative min-w-0 flex-1 p-2">
-          <GameCanvas onPointer={onPointer} />
+        <main className={`relative min-w-0 flex-1 ${store.view3d ? "" : "p-2"}`}>
+          {store.view3d ? <Game3D onPointer={onPointer} /> : <GameCanvas onPointer={onPointer} />}
+          {store.view3d && (
+            <div className="pointer-events-none absolute bottom-4 left-4 rounded-md bg-slate-900/70 px-3 py-1.5 text-[11px] text-slate-300">
+              Right-drag: rotate · Scroll: zoom · WASD or drag (Inspect mode): move
+            </div>
+          )}
           {tool && (
             <div className="pointer-events-none absolute left-4 top-4 rounded-md bg-slate-900/85 px-3 py-1.5 text-xs text-slate-200">
               {tool.kind === "build" && `Building: ${BUILD[tool.type].name}${BUILD[tool.type].paint ? " (drag to paint)" : ""}`}

@@ -3,7 +3,7 @@
 
 import { BUILD } from "@/game/constants";
 import { clearSave, loadGame, saveGame } from "@/game/save";
-import { build, demolish, fireDriver, hireDriver, runMarketing, upgrade, type ActionResult } from "@/game/simulation";
+import { build, demolish, fireDriver, hireDriver, runMarketing, signContract, upgrade, type ActionResult } from "@/game/simulation";
 import { createBlankAirport, createTutorialAirport } from "@/game/starter";
 import type { GameState } from "@/game/types";
 import type { Tool } from "@/render/renderer";
@@ -25,6 +25,8 @@ export const store = {
   hover: -1,
   flash: null as Flash | null,
   lastEventId: 0,
+  /** true = 3D view (three.js), false = classic 2D canvas */
+  view3d: true,
 
   subscribe(fn: () => void) {
     listeners.add(fn);
@@ -40,6 +42,11 @@ export const store = {
 
   init() {
     if (store.state) return;
+    try {
+      store.view3d = localStorage.getItem("airport-view") !== "2d";
+    } catch {
+      /* storage unavailable */
+    }
     store.state = loadGame() ?? createTutorialAirport();
     store.lastEventId = store.state.nextId;
     store.bump();
@@ -65,6 +72,22 @@ export const store = {
     store.speed = n;
     store.paused = false;
     store.bump();
+  },
+  setView3d(on: boolean, why?: string) {
+    store.view3d = on;
+    try {
+      localStorage.setItem("airport-view", on ? "3d" : "2d");
+    } catch {
+      /* storage unavailable */
+    }
+    if (why) store.say(why, "bad");
+    else store.bump();
+  },
+  sign(id: number) {
+    const s = store.state;
+    if (!s) return;
+    const res = signContract(s, id);
+    store.say(res.msg, res.ok ? "good" : "bad");
   },
   togglePause() {
     store.paused = !store.paused;

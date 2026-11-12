@@ -5,7 +5,7 @@ A 2D top-down airport management sim that runs entirely in the browser. Build pa
 - **Stack:** Next.js (App Router) + TypeScript + Tailwind CSS
 - **Hosting:** GitHub + Vercel, no backend, no database, no external APIs
 - **Saves:** `localStorage` (autosave every 20 seconds, plus Menu > Save now)
-- **Graphics:** drawn on an HTML5 canvas with shapes, so there are no image assets
+- **Graphics:** a 3D view built with three.js from primitives (shadows, day and night, runway lights), plus a lighter 2D canvas map you can switch to. No image or model files.
 
 ## Run it
 
@@ -32,7 +32,11 @@ The game opens on a working starter airfield. Blue dots are departing passengers
 
 Hover any tile to see why it isn't working ("Needs TSA connection", "No runway access", and so on). The side panel shows what each flight class is waiting on.
 
-**Controls:** Space = pause, 1/2/3 = speed, B = bulldoze, U = upgrade, Esc or right-click = stop building. Drag to paint floors, walkways, runways and taxiways.
+**Airline contracts:** airlines offer deals in the side panel (for example "6 regional flights in 8h"). Signed contracts send guaranteed flights and pay a bonus when finished. Leaving passengers behind costs a fine, and missing the deadline costs a penalty.
+
+**Controls:** Space = pause, 1/2/3 = speed, B = bulldoze, U = upgrade, Esc = stop building. Drag to paint floors, walkways, runways and taxiways.
+
+**3D camera:** right-drag rotates, scroll zooms, WASD or arrow keys move, and in Inspect mode left-drag moves too. The "2D map" button in the top bar switches to the flat view if 3D runs slowly.
 
 ## Project layout
 
@@ -47,7 +51,8 @@ src/
     starter.ts     the pre-built tutorial airport
     save.ts        localStorage save and load
   render/
-    renderer.ts    canvas drawing
+    scene3d.ts     three.js 3D view
+    renderer.ts    2D canvas view
   components/    React UI (top bar, build menu, side panel, canvas, store)
   app/           Next.js entry (layout, page, styles)
 scripts/

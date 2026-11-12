@@ -96,6 +96,27 @@ export interface Flight {
   runwayX1: number;
   onRunway: boolean;
   done: boolean;
+  /** id of the airline contract this flight counts toward (0 = none) */
+  contractId: number;
+}
+
+export interface Contract {
+  id: number;
+  airline: string;
+  airlineName: string;
+  cls: PlaneClass;
+  /** flights that must depart on time */
+  flights: number;
+  done: number;
+  /** hours allowed once signed */
+  hours: number;
+  /** game-minute deadline (0 while it is still an offer) */
+  deadline: number;
+  /** extra landing fee per on-time flight */
+  bonusPerFlight: number;
+  reward: number;
+  penalty: number;
+  latePenalty: number;
 }
 
 export interface Bus {
@@ -153,6 +174,10 @@ export interface GameState {
   flightsHandled: number;
   missedFlights: number;
   events: GameEvent[];
+  contractOffers: Contract[];
+  contracts: Contract[];
+  nextOffer: number;
+  contractsCompleted: number;
 }
 
 export interface RunwayRun {
