@@ -1,9 +1,11 @@
 "use client";
 
-import { getAnalysis, tierProgress } from "@/game/analysis";
-import { GATE_SIZE, MAX_CONTRACTS, PLANES, TIER_NAMES } from "@/game/constants";
-import { hourlyUpkeep, parkingUsed } from "@/game/simulation";
+import { getAnalysis, TIER_UNLOCKS, tierProgress } from "@/game/analysis";
+import { FEES, GATE_SIZE, LOAN_RATE, MAX_CONTRACTS, OVERDRAFT_RATE, PLANES, TIER_NAMES, TOWER_FORECAST_HOURS } from "@/game/constants";
+import { bankruptAt, demandParts, hourlyUpkeep, maxLoan, parkingUsed } from "@/game/simulation";
 import type { Flight, GameState } from "@/game/types";
+import { compass, currentWeather, runwayStates, WEATHER } from "@/game/weather";
+import { WindArrow } from "./WeatherBadge";
 import { clock, money } from "./format";
 import { store } from "./store";
 
@@ -19,7 +21,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function flightStatus(s: GameState, f: Flight): string {
   switch (f.state) {
     case "scheduled":
-      return s.time >= f.arriveAt ? "Holding for runway" : `Lands in ${Math.max(1, Math.round(f.arriveAt - s.time))}m`;
+      if (s.time < f.arriveAt) return `Lands in ${Math.max(1, Math.round(f.arriveAt - s.time))}m`;
+      return f.holdReason ? `Circling ${Math.round(f.holding)}m: ${f.holdReason}` : "Holding for runway";
     case "landing":
       return "Landing";
     case "taxiIn":
@@ -29,7 +32,7 @@ function flightStatus(s: GameState, f: Flight): string {
     case "boarding":
       return `Boarding ${f.boarded}/${f.depBooked}`;
     case "taxiOut":
-      return "Taxi to runway";
+      return f.holdReason ? `Holding short: ${f.holdReason}` : "Taxi to runway";
     case "takeoff":
       return "Taking off";
   }
@@ -39,9 +42,72 @@ export default function SidePanel({ s }: { s: GameState }) {
   const a = getAnalysis(s);
   const progress = tierProgress(s);
   const events = s.events.slice(-7).reverse();
+  const w = currentWeather(s);
+  const runways = runwayStates(s, a);
+  const horizon = s.time + TOWER_FORECAST_HOURS[a.tower] * 60;
+  const coming = s.forecast.slice(1).filter((x) => x.start < horizon);
+  const circling = s.flights.filter((f) => f.state === "scheduled" && f.holding > 0).length;
+  const holdingShort = s.flights.filter((f) => f.state === "taxiOut" && f.holdReason).length;
+  const hhmm = (t: number) => clock(t).split(" · ")[1];
+  const dp = demandParts(s);
 
   return (
     <aside className="hidden w-72 shrink-0 flex-col overflow-y-auto border-l border-slate-700 bg-slate-900 text-sm lg:flex">
+      <Section title="Weather and runways">
+        <div className="flex items-center gap-3">
+          <WindArrow dir={w.windDir} size={36} />
+          <div className="text-xs">
+            <div className="text-sm font-semibold">{WEATHER[w.kind].name}</div>
+            <div className="text-slate-300">
+              Wind from the {compass(w.windDir)} at {w.windSpeed} kt
+            </div>
+            <div className="text-slate-500">until {hhmm(w.end)}</div>
+          </div>
+        </div>
+        <ul className="mt-2 space-y-1">
+          {runways.map((r) => (
+            <li key={r.run.key} className="text-xs">
+              <span className="font-semibold">
+                {r.run.vertical ? "N-S" : "E-W"} {r.run.len}
+              </span>
+              <span className="text-slate-400">
+                {" "}
+                · {r.run.vertical ? (r.dir > 0 ? "landing south" : "landing north") : r.dir > 0 ? "landing east" : "landing west"} ·
+                xwind {r.crosswind} kt
+              </span>
+              <span
+                className={`block ${r.status === "open" ? "text-emerald-300" : r.status === "limited" ? "text-amber-300" : "text-rose-300"}`}
+              >
+                {r.status === "open" ? "Open" : `${r.status === "closed" ? "Closed" : "Limited"}: ${r.reason}`}
+              </span>
+            </li>
+          ))}
+          {runways.length === 0 && <li className="text-xs text-slate-400">No runways yet.</li>}
+        </ul>
+        {(circling > 0 || holdingShort > 0) && (
+          <p className="mt-2 text-xs text-amber-300">
+            {circling} circling · {holdingShort} holding short. Planes divert after 75 min.
+          </p>
+        )}
+        <div className="mt-2 text-[11px] uppercase tracking-wider text-slate-500">
+          Forecast ({TOWER_FORECAST_HOURS[a.tower]}h{a.tower === 0 ? ", build a tower for more" : ""})
+        </div>
+        <ul className="mt-1 space-y-0.5 text-xs">
+          {coming.map((x) => (
+            <li key={x.start} className="flex justify-between">
+              <span className="text-slate-400">{hhmm(x.start)}</span>
+              <span className={x.kind === "storm" || x.kind === "snow" || x.kind === "fog" ? "text-amber-300" : "text-slate-200"}>
+                {WEATHER[x.kind].name}
+              </span>
+              <span className="text-slate-400">
+                {x.windSpeed} kt {compass(x.windDir)}
+              </span>
+            </li>
+          ))}
+          {coming.length === 0 && <li className="text-slate-500">No change expected</li>}
+        </ul>
+      </Section>
+
       <Section title="Flight ops: why planes do or don't come">
         <ul className="space-y-1.5">
           {a.classStatus.map((c, i) => (
@@ -62,11 +128,12 @@ export default function SidePanel({ s }: { s: GameState }) {
         </ul>
       </Section>
 
-      <Section title={s.tier < 3 ? `Next: Tier ${s.tier + 1} ${TIER_NAMES[s.tier + 1]}` : "Top tier reached"}>
+      <Section title={s.tier < 5 ? `Next: Tier ${s.tier + 1} ${TIER_NAMES[s.tier + 1]}` : "Top tier reached"}>
         {progress.length === 0 ? (
-          <p className="text-xs text-slate-400">You run an International Airport. Now make it huge.</p>
+          <p className="text-xs text-slate-400">You run a Global Mega-Hub. Keep it on time through the storms.</p>
         ) : (
           <ul className="space-y-1">
+            <li className="text-xs text-sky-300">Unlocks: {TIER_UNLOCKS[s.tier + 1]}</li>
             {progress.map((p, i) => (
               <li key={i} className={`flex items-center gap-2 text-xs ${p.done ? "text-emerald-300" : "text-slate-300"}`}>
                 <span className={`h-2 w-2 rounded-full ${p.done ? "bg-emerald-400" : "bg-slate-600"}`} />
@@ -168,6 +235,26 @@ export default function SidePanel({ s }: { s: GameState }) {
           <dd className="text-right tabular-nums">
             {parkingUsed(s)}/{a.parkingSpots}
           </dd>
+          <dt className="text-slate-400">Loan</dt>
+          <dd className="text-right tabular-nums">
+            {money(s.loan)} / {money(maxLoan(s))}
+          </dd>
+          <dt className="text-slate-400">Interest</dt>
+          <dd className="text-right tabular-nums">
+            {money(s.loan * LOAN_RATE + (s.money < 0 ? -s.money * OVERDRAFT_RATE : 0))}/day
+          </dd>
+          <dt className="text-slate-400">Bankrupt below</dt>
+          <dd className="text-right tabular-nums text-rose-300">{money(bankruptAt(s))}</dd>
+          <dt className="text-slate-400">Fees</dt>
+          <dd className="text-right">{FEES[s.fees].name}</dd>
+          <dt className="text-slate-400">Demand now</dt>
+          <dd className="text-right tabular-nums" title="Tier base × satisfaction × on-time × time of day × fees × marketing × growth">
+            {Math.round(dp.total)}/hr ({Math.round(dp.timeOfDay * 100)}% rush)
+          </dd>
+          <dt className="text-slate-400">On-time departures</dt>
+          <dd className="text-right tabular-nums">{Math.round(s.otp)}%</dd>
+          <dt className="text-slate-400">Diverted flights</dt>
+          <dd className="text-right tabular-nums">{s.diversions}</dd>
           <dt className="text-slate-400">Flights handled</dt>
           <dd className="text-right tabular-nums">{s.flightsHandled}</dd>
           <dt className="text-slate-400">Missed flights (pax)</dt>

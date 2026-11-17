@@ -1,7 +1,7 @@
 // The simulation engine: state creation, the fixed-step update, and player actions.
 // Pure TypeScript with no DOM access, so it can run headless (see scripts/sim-test.ts).
 
-import { getAnalysis } from "./analysis";
+import { getAnalysis, TIER_UNLOCKS, tierRequirements } from "./analysis";
 import {
   AIRLINE_NAMES,
   AIRLINES,
@@ -12,33 +12,40 @@ import {
   CITIES,
   DRIVER_HIRE_COST,
   DRIVER_WAGE,
+  FEES,
   GATE_SIZE,
   GRID_H,
   GRID_W,
+  HOLD_LIMIT,
+  HOURLY_DEMAND,
   LATE_LIMIT,
   LEAD_TIME,
+  LOAN_RATE,
+  LOAN_STEP,
   MARKETING_BOOST,
   MARKETING_COST,
   MARKETING_HOURS,
   MAX_CONTRACTS,
   OFFER_REFRESH,
+  ON_TIME_GRACE,
+  OVERDRAFT_RATE,
   PARKING_FEE,
   PLANES,
   REFUND_RATE,
   SERVICE_TIME,
+  SNOW_CREW_HIRE,
+  SNOW_CREW_WAGE,
   SPAWN_WINDOW,
   START_TIME,
   TAXI_SPEED,
-  TIER2_PAX,
-  TIER2_SAT,
-  TIER3_PAX,
   TIER_DEMAND,
   TIER_NAMES,
   WALK_SPEED,
 } from "./constants";
 import { derivePath, distanceField, distFrom, fieldTo, taxiPath } from "./pathfinding";
-import { runAlong, runHas, runHeading, runIdx } from "./runways";
+import { runHas, runHeadingDir, runIdx, runProgress, runStart } from "./runways";
 import type { Analysis, Contract, Flight, GameState, Passenger, PlaneClass, RunwayRun, StepKind, TileType } from "./types";
+import { currentWeather, initWeather, runwayBlock, runwayDir, updateWeather, WEATHER } from "./weather";
 
 // ---------------------------------------------------------------------------
 // State
@@ -84,7 +91,23 @@ export function createEmptyState(money = 60000): GameState {
     contracts: [],
     nextOffer: START_TIME,
     contractsCompleted: 0,
+    climate: "temperate",
+    forecast: [],
+    snowCrews: 0,
+    calmUntil: 0,
+    snowCover: 0,
+    loan: 0,
+    fees: 1,
+    otp: 92,
+    diversions: 0,
+    bankrupt: false,
+    scenarioId: "blank",
   };
+}
+
+/** call after changing the climate of a fresh state */
+export function resetWeather(s: GameState) {
+  initWeather(s);
 }
 
 /** a runway is free when nobody is on it or on any runway that crosses it */
@@ -109,6 +132,20 @@ function earn(s: GameState, amount: number) {
   s.incomeThisHour += amount;
 }
 
+/** landing fees and ticket commissions scale with the airport's fee level */
+function earnFee(s: GameState, amount: number) {
+  earn(s, amount * FEES[s.fees].revenue);
+}
+
+function spend(s: GameState, amount: number) {
+  s.money -= amount;
+  s.expenseThisHour += amount;
+}
+
+function recordDeparture(s: GameState, onTime: boolean) {
+  s.otp += ((onTime ? 100 : 0) - s.otp) * 0.04;
+}
+
 function rate(s: GameState, rating: number) {
   s.satisfaction += (rating - s.satisfaction) * 0.04;
   if (s.satisfaction < 0) s.satisfaction = 0;
@@ -119,16 +156,45 @@ function ratingOf(p: Passenger): number {
   return Math.max(10, 100 - p.wait * 3);
 }
 
+export interface DemandParts {
+  base: number;
+  satisfaction: number;
+  onTime: number;
+  timeOfDay: number;
+  fees: number;
+  marketing: number;
+  growth: number;
+  total: number;
+}
+
+export function demandParts(s: GameState): DemandParts {
+  const base = TIER_DEMAND[s.tier];
+  const satisfaction = 0.45 + 0.55 * (s.satisfaction / 100);
+  // airlines and travellers drift away from an airport that runs late
+  const onTime = 0.7 + 0.3 * (s.otp / 100);
+  const timeOfDay = HOURLY_DEMAND[Math.floor(s.time / 60) % 24];
+  const fees = FEES[s.fees].demand;
+  const marketing = s.time < s.marketingUntil ? MARKETING_BOOST : 1;
+  // word of mouth: a busy airport keeps attracting more travellers
+  const growth = 1 + Math.min(1, s.served / 30000);
+  return {
+    base,
+    satisfaction,
+    onTime,
+    timeOfDay,
+    fees,
+    marketing,
+    growth,
+    total: base * satisfaction * onTime * timeOfDay * fees * marketing * growth,
+  };
+}
+
 export function currentDemand(s: GameState): number {
-  const sat = 0.5 + 0.5 * (s.satisfaction / 100);
-  const mk = s.time < s.marketingUntil ? MARKETING_BOOST : 1;
-  // word of mouth: a busy airport keeps attracting more travellers (up to 3x)
-  const growth = 1 + Math.min(2, s.served / 4000);
-  return TIER_DEMAND[s.tier] * sat * mk * growth;
+  return demandParts(s).total;
 }
 
 export function hourlyUpkeep(s: GameState): number {
-  let total = s.drivers * DRIVER_WAGE;
+  let total = s.drivers * DRIVER_WAGE + s.snowCrews * SNOW_CREW_WAGE;
   for (const t of s.tiles) {
     if (t.type === "empty") continue;
     const up = BUILD[t.type].upkeep;
@@ -159,7 +225,7 @@ export function buildBlocker(s: GameState, idx: number, type: Exclude<TileType, 
   const t = s.tiles[idx];
   if (t.type === type) return "Already built here";
   if (t.type !== "empty" && !(t.type === "floor" && ON_FLOOR.includes(type))) return "Tile is occupied";
-  if (s.money < BUILD[type].cost[0]) return "Not enough money";
+  if (s.money < BUILD[type].cost[0]) return s.money < 0 ? "Overdrawn: take a loan or cut costs" : "Not enough money";
   return null;
 }
 
@@ -221,6 +287,58 @@ export function fireDriver(s: GameState): ActionResult {
   s.drivers--;
   s.version++;
   return { ok: true, msg: "Shuttle driver dismissed" };
+}
+
+export function hireSnowCrew(s: GameState): ActionResult {
+  if (s.snowCrews >= 6) return { ok: false, msg: "Max 6 snow crews" };
+  if (s.money < SNOW_CREW_HIRE) return { ok: false, msg: "Not enough money" };
+  spend(s, SNOW_CREW_HIRE);
+  s.snowCrews++;
+  return { ok: true, msg: `Snow crew hired: ${s.snowCrews} runway${s.snowCrews === 1 ? "" : "s"} kept clear in snow` };
+}
+
+export function fireSnowCrew(s: GameState): ActionResult {
+  if (s.snowCrews <= 0) return { ok: false, msg: "No snow crews to dismiss" };
+  s.snowCrews--;
+  return { ok: true, msg: "Snow crew dismissed" };
+}
+
+function roundTo(n: number, step: number) {
+  return Math.max(step, Math.round(n / step) * step);
+}
+
+/** biggest loan the bank will give this airport */
+export function maxLoan(s: GameState): number {
+  return roundTo(30000 + 16 * hourlyUpkeep(s), LOAN_STEP);
+}
+
+/** the airport goes bankrupt when its balance drops below this */
+export function bankruptAt(s: GameState): number {
+  return -roundTo(15000 + 8 * hourlyUpkeep(s), 5000);
+}
+
+export function takeLoan(s: GameState): ActionResult {
+  if (s.loan + LOAN_STEP > maxLoan(s))
+    return { ok: false, msg: `The bank's limit is $${maxLoan(s).toLocaleString()} for an airport this size` };
+  s.loan += LOAN_STEP;
+  s.money += LOAN_STEP;
+  return { ok: true, msg: `Borrowed $${LOAN_STEP.toLocaleString()} at ${LOAN_RATE * 100}% a day` };
+}
+
+export function repayLoan(s: GameState): ActionResult {
+  if (s.loan <= 0) return { ok: false, msg: "No loan to repay" };
+  const amount = Math.min(LOAN_STEP, s.loan);
+  if (s.money < amount) return { ok: false, msg: "Not enough money" };
+  s.loan -= amount;
+  s.money -= amount;
+  return { ok: true, msg: s.loan > 0 ? `Repaid $${amount.toLocaleString()}` : "Loan fully repaid" };
+}
+
+export function setFees(s: GameState, level: number): ActionResult {
+  if (level < 0 || level >= FEES.length) return { ok: false, msg: "" };
+  s.fees = level;
+  const f = FEES[level];
+  return { ok: true, msg: `${f.name} fees: ${Math.round(f.revenue * 100)}% revenue, ${Math.round(f.demand * 100)}% demand` };
 }
 
 export function runMarketing(s: GameState): ActionResult {
@@ -417,9 +535,13 @@ function updatePassengers(s: GameState, a: Analysis, dt: number, flights: Map<nu
         p.wait += dt;
         if (s.facilities[p.target] === undefined) p.state = "idle";
         break;
-      case "atGate":
-        if (p.kind === "dep" && !flights.has(p.flightId)) missFlight(s, p);
+      case "atGate": {
+        if (p.kind !== "dep") break;
+        const f = flights.get(p.flightId);
+        if (!f) missFlight(s, p);
+        else if (s.time > f.schedDep) p.wait += dt * 0.5; // delayed
         break;
+      }
       default:
         break;
     }
@@ -539,19 +661,28 @@ function updateBuses(s: GameState, a: Analysis, dt: number, byId: Map<number, Pa
 // Flights
 // ---------------------------------------------------------------------------
 
+const CLASS_WEIGHT = [1, 1.6, 2.2, 2.4, 0.4];
+
 function scheduleFlights(s: GameState, a: Analysis) {
   let used = parkingUsed(s);
   for (const g of a.gates) {
-    if (!g.functional || g.maxClass < 0) continue;
+    if (!g.functional || g.classes.length === 0) continue;
     if (s.gateFlight[g.idx] !== undefined) continue;
     if (s.time < (s.gateCooldown[g.idx] ?? 0)) {
       s.gateNote[g.idx] = "Turnaround break";
       continue;
     }
-    const allowed: number[] = [];
-    for (let c = 0; c <= g.maxClass; c++) if (PLANES[c].tier <= s.tier) allowed.push(c);
-    if (allowed.length === 0) continue;
-    const top = allowed[allowed.length - 1];
+    // airlines won't book flights into a weather closure that will still be going on when they arrive
+    const wx = currentWeather(s);
+    const allowed = g.classes.filter(
+      (c) =>
+        PLANES[c].tier <= s.tier &&
+        (wx.end < s.time + LEAD_TIME || g.runways.some((r) => r.len >= PLANES[c].minRunway && !runwayBlock(s, a, r, c, true))),
+    );
+    if (allowed.length === 0) {
+      if (g.classes.length > 0) s.gateNote[g.idx] = `Airlines holding off: ${WEATHER[wx.kind].name.toLowerCase()}`;
+      continue;
+    }
     const free = a.parkingSpots - used;
     let created = false;
 
@@ -571,8 +702,18 @@ function scheduleFlights(s: GameState, a: Analysis) {
       }
     }
 
-    const first = Math.random() < 0.7 ? top : allowed[Math.floor(Math.random() * allowed.length)];
-    for (let c = first; c >= 0; c--) {
+    // airlines prefer the biggest plane the gate takes; supersonic flights are rare
+    let r = Math.random() * allowed.reduce((t, c) => t + CLASS_WEIGHT[c], 0);
+    let first = allowed[allowed.length - 1];
+    for (const c of allowed) {
+      r -= CLASS_WEIGHT[c];
+      if (r <= 0) {
+        first = c;
+        break;
+      }
+    }
+    const order = [first, ...allowed.filter((c) => c !== first).sort((p, q) => PLANES[q].seats - PLANES[p].seats)];
+    for (const c of order) {
       const def = PLANES[c];
       const want = Math.round(def.seats * (0.7 + 0.3 * Math.random()));
       const booked = Math.min(want, free, Math.floor(s.demandTokens));
@@ -597,6 +738,7 @@ function createFlight(s: GameState, gate: number, stand: number, cls: PlaneClass
   for (let i = 0; i < booked; i++) spawnTimes.push(s.time + Math.random() * SPAWN_WINDOW);
   spawnTimes.sort((x, y) => x - y);
   const cities = CITIES[cls];
+  const arriveAt = s.time + LEAD_TIME + Math.random() * 6;
   const f: Flight = {
     id: s.nextId++,
     code:
@@ -614,8 +756,9 @@ function createFlight(s: GameState, gate: number, stand: number, cls: PlaneClass
     speed: 0,
     path: [],
     pathIdx: 0,
-    arriveAt: s.time + LEAD_TIME + Math.random() * 6,
+    arriveAt,
     departAt: 0,
+    schedDep: arriveAt + 15 + def.ground,
     depBooked: booked,
     depSpawned: 0,
     spawnTimes,
@@ -624,6 +767,9 @@ function createFlight(s: GameState, gate: number, stand: number, cls: PlaneClass
     arrLeft: 0,
     timer: 0,
     run: null,
+    dir: 1,
+    holding: 0,
+    holdReason: "",
     onRunway: false,
     done: false,
     contractId: contract ? contract.id : 0,
@@ -711,38 +857,69 @@ function updateFlights(s: GameState, a: Analysis, dt: number) {
           cancelFlight(s, f, "no usable runway route to the gate");
           break;
         }
-        // land on whichever free runway gives the shortest taxi to the stand
+        // land into the wind on whichever open runway gives the shortest taxi to the stand
         let best: RunwayRun | null = null;
+        let bestDir: 1 | -1 = 1;
         let bestPath: number[] = [];
-        let anyBusy = false;
+        let waitReason = "";
         for (const run of usable) {
-          if (!runwayFree(s, run)) {
-            anyBusy = true;
+          const block = runwayBlock(s, a, run, f.cls, true);
+          if (block) {
+            if (!waitReason) waitReason = block;
             continue;
           }
+          if (!runwayFree(s, run)) {
+            if (!waitReason) waitReason = "Waiting for a free runway";
+            continue;
+          }
+          const dir = runwayDir(s, run);
+          const startA = runStart(run, dir);
           // touch down at the runway start, roll out a few tiles, then find the way to the stand
-          const rollA = run.a0 + Math.min(run.len - 1, 6);
-          const rollEnd = runIdx(s, run, rollA);
-          const exit = taxiPath(s, rollEnd, g.stand, run) ?? taxiPath(s, rollEnd, g.stand);
+          const rollA = startA + dir * Math.min(run.len - 1, 6);
+          const exit = taxiPath(s, runIdx(s, run, rollA), g.stand, { run, dir }) ?? taxiPath(s, runIdx(s, run, rollA), g.stand);
           if (!exit) continue;
           const path: number[] = [];
-          for (let k = run.a0; k < rollA; k++) path.push(runIdx(s, run, k));
+          for (let k = startA; k !== rollA; k += dir) path.push(runIdx(s, run, k));
           path.push(...exit);
           if (!best || path.length < bestPath.length) {
             best = run;
+            bestDir = dir;
             bestPath = path;
           }
         }
         if (!best) {
-          if (!anyBusy) cancelFlight(s, f, "no taxiway route to the gate");
-          break; // otherwise hold until a runway frees up
+          if (!waitReason) {
+            cancelFlight(s, f, "no taxiway route to the gate");
+            break;
+          }
+          // circle until a runway opens, then divert
+          f.holding += dt;
+          f.holdReason = waitReason;
+          if (f.holding > HOLD_LIMIT) {
+            s.diversions++;
+            recordDeparture(s, false);
+            for (const p of s.passengers) {
+              if (p.dead || p.flightId !== f.id || p.missed) continue;
+              p.missed = true;
+              rate(s, 35);
+              p.plan = ["exit"];
+              p.step = 0;
+              p.state = "idle";
+            }
+            cancelFlight(s, f, `diverted after ${Math.round(f.holding)} min holding (${waitReason})`);
+          }
+          break;
         }
-        const start = runIdx(s, best, best.a0);
+        const start = runIdx(s, best, runStart(best, bestDir));
         f.stand = g.stand;
         f.run = best;
+        f.dir = bestDir;
+        // the timetable allows for the normal taxi in; time spent holding is delay
+        f.schedDep = f.arriveAt + 3 + bestPath.length / TAXI_SPEED + def.ground;
+        f.holdReason = "";
         f.path = bestPath;
         f.pathIdx = 0;
-        f.heading = runHeading(best);
+        f.heading = runHeadingDir(best, bestDir);
         f.x = (start % s.w) - 14 * Math.cos(f.heading);
         f.y = Math.floor(start / s.w) - 14 * Math.sin(f.heading);
         f.speed = 14;
@@ -752,7 +929,7 @@ function updateFlights(s: GameState, a: Analysis, dt: number) {
         break;
       }
       case "landing": {
-        const down = !f.run || runAlong(f.run, f.x, f.y) >= f.run.a0;
+        const down = !f.run || runProgress(f.run, f.dir, f.x, f.y) >= 0;
         if (down) f.speed = Math.max(3, f.speed - 16 * dt);
         const end = followPath(s, f, dt);
         const under = s.tiles[Math.round(f.y) * s.w + Math.round(f.x)];
@@ -769,7 +946,7 @@ function updateFlights(s: GameState, a: Analysis, dt: number) {
           f.state = "deboarding";
           f.timer = 0;
           f.departAt = s.time + def.ground;
-          earn(s, def.landingFee);
+          earnFee(s, def.landingFee);
           s.flightsHandled++;
         }
         break;
@@ -780,7 +957,9 @@ function updateFlights(s: GameState, a: Analysis, dt: number) {
         while (f.timer >= 0.1 && f.arrLeft > 0) {
           f.timer -= 0.1;
           f.arrLeft--;
-          spawnPassenger(s, "arr", f.id, f.gate, f.cls === 2 ? ["customs", "exit"] : ["exit"]);
+          const p = spawnPassenger(s, "arr", f.id, f.gate, def.intl ? ["customs", "exit"] : ["exit"]);
+          // time spent circling counts against the trip
+          p.wait = f.holding * 0.3;
         }
         if (f.arrLeft === 0) {
           f.state = "boarding";
@@ -800,7 +979,7 @@ function updateFlights(s: GameState, a: Analysis, dt: number) {
             f.boarded++;
             s.served++;
             rate(s, ratingOf(p));
-            earn(s, def.commission);
+            earnFee(s, def.commission);
           } else {
             waiting++;
           }
@@ -818,19 +997,23 @@ function updateFlights(s: GameState, a: Analysis, dt: number) {
             addEvent(s, `${f.code} left ${remaining} passenger${remaining === 1 ? "" : "s"} behind`, "bad");
           }
           settleContractFlight(s, f, remaining === 0);
-          // depart from the runway with the shortest taxi, avoiding busy ones when possible
+          recordDeparture(s, s.time <= f.schedDep + ON_TIME_GRACE);
+          // depart into the wind from the open runway with the shortest taxi
           const g = a.gateByIdx.get(f.gate);
           let path: number[] | null = null;
           let bestCost = Infinity;
           for (const run of g ? g.runways : []) {
             if (run.len < def.minRunway) continue;
-            const candidate = taxiPath(s, f.stand, runIdx(s, run, run.a0));
+            const dir = runwayDir(s, run);
+            const candidate = taxiPath(s, f.stand, runIdx(s, run, runStart(run, dir)));
             if (!candidate) continue;
-            const cost = candidate.length + (runwayFree(s, run) ? 0 : 12);
+            const cost =
+              candidate.length + (runwayFree(s, run) ? 0 : 12) + (runwayBlock(s, a, run, f.cls, false) ? 200 : 0);
             if (cost < bestCost) {
               bestCost = cost;
               path = candidate;
               f.run = run;
+              f.dir = dir;
             }
           }
           releaseGate(s, f);
@@ -852,20 +1035,18 @@ function updateFlights(s: GameState, a: Analysis, dt: number) {
           break;
         }
         const next = f.path[f.pathIdx];
-        if (next !== undefined) {
-          const nx = next % s.w;
-          const ny = (next - nx) / s.w;
-          if (runHas(run, nx, ny) && s.runwayLocks[run.key] !== f.id) {
-            if (!runwayFree(s, run)) break; // hold short
-            s.runwayLocks[run.key] = f.id;
-            f.onRunway = true;
-          }
+        const atEnd = f.pathIdx >= f.path.length;
+        const entering = next !== undefined && runHas(run, next % s.w, Math.floor(next / s.w));
+        if ((entering || atEnd) && s.runwayLocks[run.key] !== f.id) {
+          // hold short until the weather allows it and the runway is free
+          const block = runwayBlock(s, a, run, f.cls, false);
+          f.holdReason = block ?? (runwayFree(s, run) ? "" : "Waiting for a free runway");
+          if (block || !runwayFree(s, run)) break;
+          s.runwayLocks[run.key] = f.id;
+          f.onRunway = true;
+          f.holdReason = "";
         }
         if (followPath(s, f, dt)) {
-          if (s.runwayLocks[run.key] !== f.id) {
-            if (!runwayFree(s, run)) break;
-            s.runwayLocks[run.key] = f.id;
-          }
           f.onRunway = true;
           f.state = "takeoff";
           f.speed = 1.5;
@@ -878,13 +1059,13 @@ function updateFlights(s: GameState, a: Analysis, dt: number) {
           f.done = true;
           break;
         }
-        const hd = runHeading(run);
+        const hd = runHeadingDir(run, f.dir);
         turnToward(f, hd, dt);
         f.speed += 14 * dt;
         f.x += Math.cos(hd) * f.speed * dt;
         f.y += Math.sin(hd) * f.speed * dt;
-        if (runAlong(run, f.x, f.y) > run.a1 + 2) unlockRunway(s, f);
-        if (f.x > s.w + 6 || f.y > s.h + 6) f.done = true;
+        if (runProgress(run, f.dir, f.x, f.y) > run.len + 1) unlockRunway(s, f);
+        if (f.x > s.w + 8 || f.y > s.h + 8 || f.x < -8 || f.y < -8) f.done = true;
         break;
       }
     }
@@ -918,7 +1099,7 @@ function makeOffer(s: GameState): Contract {
   const cls = Math.floor(Math.random() * (maxCls + 1)) as PlaneClass;
   const def = PLANES[cls];
   const airline = AIRLINES[Math.floor(Math.random() * AIRLINES.length)];
-  const flights = [5, 4, 3][cls] + Math.floor(Math.random() * 4);
+  const flights = [5, 4, 3, 2, 2][cls] + Math.floor(Math.random() * 4);
   const hours = Math.round(flights * (1.0 + Math.random() * 0.7));
   const reward = Math.round((flights * def.landingFee * (0.9 + Math.random() * 0.6)) / 100) * 100;
   return {
@@ -949,8 +1130,7 @@ function updateContracts(s: GameState) {
   }
   for (const c of s.contracts) {
     if (s.time > c.deadline) {
-      s.money -= c.penalty;
-      s.expenseThisHour += c.penalty;
+      spend(s, c.penalty);
       addEvent(s, `${c.airlineName} contract failed: ${c.done}/${c.flights} flights. Penalty $${c.penalty.toLocaleString()}.`, "bad");
       c.done = -1;
     }
@@ -963,8 +1143,7 @@ function settleContractFlight(s: GameState, f: Flight, onTime: boolean) {
   const c = s.contracts.find((x) => x.id === f.contractId);
   if (!c) return;
   if (!onTime) {
-    s.money -= c.latePenalty;
-    s.expenseThisHour += c.latePenalty;
+    spend(s, c.latePenalty);
     addEvent(s, `${c.airlineName} fined you $${c.latePenalty.toLocaleString()}: ${f.code} left passengers behind`, "bad");
     return;
   }
@@ -993,22 +1172,27 @@ export function signContract(s: GameState, id: number): ActionResult {
 // Tiers + economy
 // ---------------------------------------------------------------------------
 
-function checkTier(s: GameState, a: Analysis) {
-  if (s.tier === 1 && s.served >= TIER2_PAX && s.satisfaction >= TIER2_SAT && a.gates.some((g) => g.level >= 2)) {
-    s.tier = 2;
-    s.version++;
-    addEvent(s, `Promoted to Tier 2: ${TIER_NAMES[2]}! Narrow-body flights unlocked.`, "good");
-  } else if (s.tier === 2 && s.served >= TIER3_PAX && a.customs.length > 0 && a.gates.some((g) => g.level >= 3)) {
-    s.tier = 3;
-    s.version++;
-    addEvent(s, `Promoted to Tier 3: ${TIER_NAMES[3]}! Wide-body flights unlocked.`, "good");
-  }
+function checkTier(s: GameState) {
+  if (s.tier >= 5) return;
+  const next = s.tier + 1;
+  const reqs = tierRequirements(s, next);
+  if (reqs.length === 0 || !reqs.every((r) => r.done)) return;
+  s.tier = next as GameState["tier"];
+  s.version++;
+  addEvent(s, `Promoted to Tier ${next}: ${TIER_NAMES[next]}! Unlocked: ${TIER_UNLOCKS[next]}.`, "good");
 }
 
 function hourTick(s: GameState) {
-  const upkeep = hourlyUpkeep(s);
-  s.money -= upkeep;
-  s.expenseThisHour += upkeep;
+  spend(s, hourlyUpkeep(s));
+  const interest = (s.loan * LOAN_RATE) / 24 + (s.money < 0 ? (-s.money * OVERDRAFT_RATE) / 24 : 0);
+  if (interest > 0) spend(s, interest);
+  const limit = bankruptAt(s);
+  if (s.money < limit) {
+    s.bankrupt = true;
+    addEvent(s, "Bankrupt! The bank has taken over the airport.", "bad");
+  } else if (s.money < 0) {
+    addEvent(s, `Overdrawn: ${OVERDRAFT_RATE * 100}% a day interest. Bankrupt below -$${(-limit).toLocaleString()}.`, "bad");
+  }
   s.incomeLastHour = s.incomeThisHour;
   s.expenseLastHour = s.expenseThisHour;
   s.incomeThisHour = 0;
@@ -1022,7 +1206,9 @@ function hourTick(s: GameState) {
 
 /** advance the simulation by dt game minutes (keep dt small, see MAX_STEP) */
 export function step(s: GameState, dt: number) {
+  if (s.bankrupt) return;
   s.time += dt;
+  updateWeather(s, dt);
   let a = getAnalysis(s);
 
   const demand = currentDemand(s);
@@ -1030,7 +1216,7 @@ export function step(s: GameState, dt: number) {
 
   if (s.time >= s.nextSchedule) {
     s.nextSchedule = s.time + 2;
-    checkTier(s, a);
+    checkTier(s);
     updateContracts(s);
     a = getAnalysis(s);
     scheduleFlights(s, a);

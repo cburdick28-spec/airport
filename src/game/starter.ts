@@ -2,7 +2,8 @@
 // planes land and passengers move the moment the game opens.
 
 import { MAX_STEP } from "./constants";
-import { addEvent, createEmptyState, step } from "./simulation";
+import { recenter } from "./layout";
+import { addEvent, createEmptyState, resetWeather, step } from "./simulation";
 import type { GameState, TileType } from "./types";
 
 function set(s: GameState, x: number, y: number, type: TileType, level = 1) {
@@ -42,9 +43,13 @@ export function createTutorialAirport(): GameState {
   rect(s, 29, 21, 35, 21, "sidewalk");
   set(s, 28, 21, "shuttle");
 
+  recenter(s);
   s.name = "Starter Airfield";
+  s.scenarioId = "tutorial";
   s.drivers = 1;
   s.demandTokens = 40;
+  s.calmUntil = s.time + 20 * 60;
+  resetWeather(s);
   s.version++;
 
   // Warm up so there is already life on screen at first launch
@@ -52,12 +57,16 @@ export function createTutorialAirport(): GameState {
   s.events = [];
   addEvent(s, "Welcome! This starter airfield is already running. Watch a flight land, then expand.", "good");
   addEvent(s, "Goal: serve 500 passengers at 80%+ satisfaction and upgrade a gate to Medium to reach Tier 2.", "info");
+  addEvent(s, "Watch the sky: with no Control Tower, fog and thunderstorms will shut your runway.", "info");
   return s;
 }
 
 export function createBlankAirport(): GameState {
   const s = createEmptyState(60000);
   s.name = "Blank Field";
+  s.scenarioId = "blank";
+  s.calmUntil = s.time + 24 * 60;
+  resetWeather(s);
   addEvent(s, "Blank field. Build parking, check-in, TSA, a gate, a taxiway and a runway to get flights.", "info");
   return s;
 }

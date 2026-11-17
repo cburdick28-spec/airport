@@ -18,6 +18,7 @@ const WALKABLE: Record<TileType, boolean> = {
   gate: true,
   runway: false,
   taxiway: false,
+  tower: false,
 };
 
 export function isWalkable(t: TileType): boolean {
@@ -256,7 +257,12 @@ export function derivePath(s: GameState, field: Float64Array, from: number): Pat
  * BFS over runway/taxiway tiles. When `oneWay` is given, tiles on that runway can
  * only be travelled in its landing direction (so planes never U-turn on the roll-out).
  */
-export function taxiPath(s: GameState, from: number, to: number, oneWay?: RunwayRun): number[] | null {
+export function taxiPath(
+  s: GameState,
+  from: number,
+  to: number,
+  oneWay?: { run: RunwayRun; dir: 1 | -1 },
+): number[] | null {
   if (from === to) return [from];
   const n = s.tiles.length;
   const prev = new Int32Array(n).fill(-1);
@@ -268,9 +274,9 @@ export function taxiPath(s: GameState, from: number, to: number, oneWay?: Runway
     if (!oneWay) return false;
     const x = i % s.w;
     const y = (i - x) / s.w;
-    return runHas(oneWay, x, y);
+    return runHas(oneWay.run, x, y);
   };
-  const fwd = oneWay ? (oneWay.vertical ? s.w : 1) : 0;
+  const fwd = oneWay ? (oneWay.run.vertical ? s.w : 1) * oneWay.dir : 0;
   for (let head = 0; head < queue.length; head++) {
     const cur = queue[head];
     const cnt = neighbors(s, cur, nb);

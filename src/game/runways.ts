@@ -103,3 +103,18 @@ export function runwayMarks(s: GameState, runs: RunwayRun[]): RunwayMarks {
   }
   return { orient, end };
 }
+
+/** position along the axis where a plane travelling in `dir` starts (touchdown / takeoff roll) */
+export function runStart(r: RunwayRun, dir: 1 | -1): number {
+  return dir > 0 ? r.a0 : r.a1;
+}
+
+/** how far a point is past the runway start, measured in the direction of travel */
+export function runProgress(r: RunwayRun, dir: 1 | -1, x: number, y: number): number {
+  return (runAlong(r, x, y) - runStart(r, dir)) * dir;
+}
+
+/** heading in radians for travel along the runway in `dir` */
+export function runHeadingDir(r: RunwayRun, dir: 1 | -1): number {
+  return runHeading(r) + (dir < 0 ? Math.PI : 0);
+}

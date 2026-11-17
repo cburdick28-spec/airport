@@ -126,6 +126,31 @@ export default function Game() {
       <BuildMenu s={s} />
       {pointer && !store.picker && <Tooltip pointer={pointer} />}
       {store.picker && <AirportPicker current={s.name} />}
+      {s.bankrupt && !store.picker && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/80 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-xl border border-rose-500 bg-slate-900 p-6 text-center shadow-2xl">
+            <div className="text-3xl font-black text-rose-400">Bankrupt</div>
+            <p className="mt-2 text-sm text-slate-300">
+              {s.name} ran out of money and the bank has taken over. You served {s.served.toLocaleString("en-US")} passengers
+              and reached Tier {s.tier}.
+            </p>
+            <div className="mt-5 flex justify-center gap-2">
+              <button
+                onClick={() => store.newGame(s.scenarioId)}
+                className="rounded-md bg-sky-500 px-4 py-2 text-sm font-bold text-white hover:bg-sky-400"
+              >
+                Restart this airport
+              </button>
+              <button
+                onClick={() => store.setPicker(true)}
+                className="rounded-md border border-slate-600 px-4 py-2 text-sm font-bold hover:bg-slate-800"
+              >
+                Pick another airport
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

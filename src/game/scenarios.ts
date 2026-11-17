@@ -2,9 +2,10 @@
 // Runway layouts follow the real airports; terminals are simplified.
 
 import { MAX_STEP } from "./constants";
-import { addEvent, createEmptyState, step } from "./simulation";
+import { recenter, placeNear } from "./layout";
+import { addEvent, createEmptyState, resetWeather, step } from "./simulation";
 import { createBlankAirport, createTutorialAirport } from "./starter";
-import type { GameState, TileType } from "./types";
+import type { Climate, GameState, TileType } from "./types";
 
 export interface Scenario {
   id: string;
@@ -33,19 +34,31 @@ function gates(s: GameState, y: number, list: [number, number][]) {
 }
 
 interface Setup {
+  id: string;
   name: string;
-  tier: 1 | 2 | 3;
+  tier: GameState["tier"];
   served: number;
   drivers?: number;
+  snowCrews?: number;
+  climate: Climate;
+  /** control tower: where (before centering) and what level */
+  tower: [number, number, number];
   hello: string;
   goal: string;
 }
 
 function finish(s: GameState, o: Setup): GameState {
+  placeNear(s, o.tower[0], o.tower[1], "tower", o.tower[2]);
+  recenter(s);
+  s.scenarioId = o.id;
   s.name = o.name;
   s.tier = o.tier;
   s.served = o.served;
   s.drivers = o.drivers ?? 0;
+  s.snowCrews = o.snowCrews ?? 0;
+  s.climate = o.climate;
+  s.calmUntil = s.time + 3 * 60;
+  resetWeather(s);
   s.demandTokens = 120;
   s.version++;
   // warm up so the airport is already alive when it opens
@@ -71,7 +84,7 @@ function taxi(s: GameState, x0: number, y0: number, x1: number, y1: number) {
 // (about 125 m per tile, map rotated 32 degrees)
 // ---------------------------------------------------------------------------
 function laguardia(): GameState {
-  const s = createEmptyState(80000);
+  const s = createEmptyState(60000);
   rect(s, 26, 8, 26, 24, "runway"); // 4/22
   rect(s, 23, 12, 39, 12, "runway"); // 13/31
 
@@ -118,10 +131,14 @@ function laguardia(): GameState {
   ];
 
   return finish(s, {
+    id: "lga",
     name: "LaGuardia (LGA)",
     tier: 2,
     served: 500,
     drivers: 2,
+    snowCrews: 1,
+    climate: "temperate",
+    tower: [32, 21, 1],
     hello: "Welcome to LaGuardia: two crossing 7,000 ft runways and no room to spare.",
     goal: "The runways are 17 tiles, one short of wide-body length, and they cross: only one can be used at a time.",
   });
@@ -132,7 +149,7 @@ function laguardia(): GameState {
 // (about 90 m per tile, map rotated 31 degrees)
 // ---------------------------------------------------------------------------
 function jfk(): GameState {
-  const s = createEmptyState(150000);
+  const s = createEmptyState(100000);
   rect(s, 1, 28, 51, 28, "runway"); // 13R/31L
   rect(s, 17, 6, 51, 6, "runway"); // 13L/31R
   rect(s, 43, 3, 43, 41, "runway"); // 4L/22R
@@ -229,10 +246,14 @@ function jfk(): GameState {
   ];
 
   return finish(s, {
+    id: "jfk",
     name: "New York JFK",
     tier: 3,
     served: 6000,
     drivers: 2,
+    snowCrews: 1,
+    climate: "temperate",
+    tower: [30, 20, 2],
     hello: "Welcome to JFK: four runways in a pinwheel around the central terminal area.",
     goal: "Runway 4L/22R crosses both 13s, so those three block each other. Watch how the traffic queues.",
   });
@@ -243,7 +264,7 @@ function jfk(): GameState {
 // (about 80 m per tile, map rotated 7 degrees)
 // ---------------------------------------------------------------------------
 function lax(): GameState {
-  const s = createEmptyState(200000);
+  const s = createEmptyState(120000);
   rect(s, 6, 10, 40, 10, "runway"); // 6L/24R
   rect(s, 2, 13, 43, 13, "runway"); // 6R/24L
   rect(s, 15, 30, 63, 30, "runway"); // 7L/25R
@@ -306,11 +327,14 @@ function lax(): GameState {
   ];
 
   return finish(s, {
+    id: "lax",
     name: "Los Angeles (LAX)",
     tier: 3,
     served: 6000,
+    climate: "coastal",
+    tower: [39, 22, 1],
     hello: "Welcome to LAX: Tom Bradley across the west end, Terminals 1 to 3 north and 4 to 7 south.",
-    goal: "Every terminal has its own single security lane. Find the pier that backs up first and upgrade it.",
+    goal: "Marine-layer fog rolls in often and your tower has no ILS yet. Upgrade it before the fog strands your flights.",
   });
 }
 
@@ -319,7 +343,7 @@ function lax(): GameState {
 // (about 80 m per tile, no rotation needed)
 // ---------------------------------------------------------------------------
 function atlanta(): GameState {
-  const s = createEmptyState(180000);
+  const s = createEmptyState(110000);
   rect(s, 13, 1, 47, 1, "runway"); // 8L/26R
   rect(s, 13, 5, 51, 5, "runway"); // 8R/26L
   rect(s, 2, 22, 47, 22, "runway"); // 9L/27R
@@ -378,11 +402,14 @@ function atlanta(): GameState {
   s.labels.push({ x: 4.5, y: 13.5, text: "DOM" }, { x: 54.5, y: 13.5, text: "INTL" });
 
   return finish(s, {
+    id: "atl",
     name: "Atlanta (ATL)",
     tier: 3,
     served: 6000,
+    climate: "southern",
+    tower: [30, 21, 1],
     hello: "Welcome to Atlanta: five parallel runways, two terminals and seven concourses on one long spine.",
-    goal: "Thirty gates share four security lanes. That checkpoint is your whole game: fix the bottleneck.",
+    goal: "Atlanta gets hammered by thunderstorms. A level 3 tower keeps runways open through them. Security is the other choke point.",
   });
 }
 
@@ -393,7 +420,7 @@ export const SCENARIOS: Scenario[] = [
     code: "START",
     tagline: "Learn the ropes",
     blurb: "A tiny working regional airfield. Grow it from two small gates into an international airport.",
-    facts: "Tier 1 · 2 gates · 1 runway · $30k",
+    facts: "Tier 1 · 2 gates · 1 runway · $30k · calm first day",
     create: createTutorialAirport,
   },
   {
@@ -402,7 +429,7 @@ export const SCENARIOS: Scenario[] = [
     code: "LGA",
     tagline: "Tight and domestic",
     blurb: "Two short crossing runways, Terminals B and C in the corner and the little Marine Air Terminal across the field.",
-    facts: "Tier 2 · 7 gates · 2 crossing runways · $80k",
+    facts: "Tier 2 · 7 gates · 2 crossing runways · $60k · snow and storms",
     create: laguardia,
   },
   {
@@ -411,7 +438,7 @@ export const SCENARIOS: Scenario[] = [
     code: "JFK",
     tagline: "The international gateway",
     blurb: "Four runways in a pinwheel around Terminals 1, 4, 5, 7 and 8, each with its own security. 4L/22R crosses both 13s.",
-    facts: "Tier 3 · 19 gates · 4 runways · $150k",
+    facts: "Tier 3 · 19 gates · 4 runways · $100k · snow and storms",
     create: jfk,
   },
   {
@@ -420,7 +447,7 @@ export const SCENARIOS: Scenario[] = [
     code: "LAX",
     tagline: "Four runways, one horseshoe",
     blurb: "Tom Bradley International across the west end, Terminals 1-3 as north piers and 4-7 as south piers, between two runway pairs.",
-    facts: "Tier 3 · 28 gates · 4 runways · $200k",
+    facts: "Tier 3 · 28 gates · 4 runways · $120k · coastal fog",
     create: lax,
   },
   {
@@ -429,7 +456,7 @@ export const SCENARIOS: Scenario[] = [
     code: "ATL",
     tagline: "The busiest bottleneck",
     blurb: "Five parallel runways and seven concourses on one spine, with a terminal at each end. Security is the choke point.",
-    facts: "Tier 3 · 30 gates · 5 runways · $180k",
+    facts: "Tier 3 · 30 gates · 5 runways · $110k · thunderstorms",
     create: atlanta,
   },
   {
@@ -438,7 +465,7 @@ export const SCENARIOS: Scenario[] = [
     code: "NEW",
     tagline: "Start from nothing",
     blurb: "Empty land and $60,000. Design your own airport from the first parking lot.",
-    facts: "Tier 1 · empty · $60k",
+    facts: "Tier 1 · empty · $60k · calm first day",
     create: createBlankAirport,
   },
 ];

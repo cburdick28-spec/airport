@@ -2,7 +2,8 @@
 
 import { getAnalysis } from "@/game/analysis";
 import { PLANES } from "@/game/constants";
-import { runAlong, runwayMarks, type RunwayMarks } from "@/game/runways";
+import { runHeadingDir, runProgress, runStart, runwayMarks, type RunwayMarks } from "@/game/runways";
+import { currentWeather, runwayStates, type RunwayState } from "@/game/weather";
 import { buildBlocker } from "@/game/simulation";
 import type { Flight, GameState, TileType } from "@/game/types";
 
@@ -15,6 +16,8 @@ export type Tool =
 export interface View {
   /** css pixels per tile */
   tile: number;
+  /** visible part of the map in tiles (defaults to all of it) */
+  clip?: { x: number; y: number; w: number; h: number };
   hover: number;
   tool: Tool;
 }
@@ -33,15 +36,15 @@ const C = {
   checkin: "#2f6fed",
   tsa: "#7c3aed",
   customs: "#0d9488",
-  gate: ["", "#16a34a", "#d97706", "#dc2626"],
+  gate: ["", "#16a34a", "#d97706", "#dc2626", "#db2777"],
   dep: "#2563eb",
   arr: "#ea580c",
   missed: "#dc2626",
   ink: "#1f2937",
 };
 
-const GATE_LETTER = ["", "S", "M", "L"];
-const TAIL = ["#16a34a", "#2563eb", "#b91c1c"];
+const GATE_LETTER = ["", "S", "M", "L", "J"];
+const TAIL = ["#16a34a", "#2563eb", "#b91c1c", "#7c3aed", "#0f172a"];
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
@@ -147,6 +150,24 @@ function drawTiles(ctx: CanvasRenderingContext2D, s: GameState, T: number, marks
           ctx.stroke();
           break;
         }
+        case "tower": {
+          ctx.fillStyle = C.sidewalk;
+          ctx.fillRect(px, py, T, T);
+          ctx.fillStyle = "#475569";
+          ctx.beginPath();
+          ctx.arc(cx, cy, T * 0.42, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#7dd3fc";
+          ctx.beginPath();
+          ctx.arc(cx, cy, T * 0.28, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "#0f172a";
+          ctx.font = `800 ${T * 0.34}px system-ui, sans-serif`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(String(t.level), cx, cy + 1);
+          break;
+        }
         case "gate": {
           ctx.fillStyle = C.floor;
           ctx.fillRect(px, py, T, T);
@@ -185,7 +206,7 @@ function drawPlane(ctx: CanvasRenderingContext2D, f: Flight, T: number) {
   const def = PLANES[f.cls];
   let alt = 0;
   if (f.state === "landing" && f.run) {
-    const before = f.run.a0 - runAlong(f.run, f.x, f.y);
+    const before = -runProgress(f.run, f.dir, f.x, f.y);
     if (before > 0) alt = Math.min(1, before / 12);
   }
   if (f.state === "takeoff") alt = Math.max(0, Math.min(1.4, (f.speed - 8) / 9));
@@ -251,6 +272,94 @@ function drawPlane(ctx: CanvasRenderingContext2D, f: Flight, T: number) {
   ctx.restore();
 }
 
+/** red wash on closed runways, amber on limited ones, green arrows showing the landing direction */
+function drawRunwayStatus(ctx: CanvasRenderingContext2D, s: GameState, T: number, states: RunwayState[]) {
+  for (const st of states) {
+    const r = st.run;
+    const x0 = (r.vertical ? r.line : r.a0) * T;
+    const y0 = (r.vertical ? r.a0 : r.line) * T;
+    const w = (r.vertical ? 1 : r.len) * T;
+    const h = (r.vertical ? r.len : 1) * T;
+    if (st.status !== "open") {
+      ctx.fillStyle = st.status === "closed" ? "rgba(220,38,38,0.42)" : "rgba(245,158,11,0.32)";
+      ctx.fillRect(x0, y0, w, h);
+    }
+    if (st.status === "closed") continue;
+    // chevrons near the touchdown end, pointing the way planes land
+    const hd = runHeadingDir(r, st.dir);
+    const start = runStart(r, st.dir);
+    ctx.strokeStyle = "#22c55e";
+    ctx.lineWidth = Math.max(1.5, T * 0.12);
+    for (let i = 0; i < 3; i++) {
+      const along = start + st.dir * (1 + i * 0.7);
+      const cx = (r.vertical ? r.line : along) * T + T / 2;
+      const cy = (r.vertical ? along : r.line) * T + T / 2;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(hd);
+      ctx.beginPath();
+      ctx.moveTo(-T * 0.18, -T * 0.32);
+      ctx.lineTo(T * 0.14, 0);
+      ctx.lineTo(-T * 0.18, T * 0.32);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+}
+
+/** rain streaks, snowflakes, fog haze and storm gloom */
+function drawWeather(ctx: CanvasRenderingContext2D, s: GameState, T: number, clip: { x: number; y: number; w: number; h: number }) {
+  ctx.save();
+  ctx.translate(clip.x * T, clip.y * T);
+  const W = clip.w * T;
+  const H = clip.h * T;
+  const w = currentWeather(s);
+  const now = performance.now() / 1000;
+  const wind = (w.windDir + 180) * (Math.PI / 180); // direction the wind blows towards
+  const drift = Math.min(1, w.windSpeed / 30);
+  if (s.snowCover > 0.02) {
+    ctx.fillStyle = `rgba(248,250,252,${0.35 * s.snowCover})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+  if (w.kind === "storm" || w.kind === "rain" || w.kind === "cloudy") {
+    ctx.fillStyle = w.kind === "storm" ? "rgba(30,41,59,0.3)" : w.kind === "rain" ? "rgba(51,65,85,0.16)" : "rgba(100,116,139,0.08)";
+    ctx.fillRect(0, 0, W, H);
+  }
+  if (w.kind === "storm" && Math.sin(now * 1.7) > 0.985) {
+    ctx.fillStyle = "rgba(255,255,255,0.35)";
+    ctx.fillRect(0, 0, W, H);
+  }
+  if (w.kind === "fog") {
+    ctx.fillStyle = "rgba(226,232,240,0.5)";
+    ctx.fillRect(0, 0, W, H);
+  }
+  if (w.kind === "rain" || w.kind === "storm") {
+    const n = w.kind === "storm" ? 260 : 160;
+    const dx = Math.sin(wind) * drift * T * 0.5;
+    ctx.strokeStyle = "rgba(191,219,254,0.55)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const x = (((i * 97.13) % 1) * W + now * 40 * Math.sin(wind) * drift + i * 13.7) % W;
+      const y = ((i * 53.71 + now * 520) % (H + 40)) - 20;
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + dx, y + T * 0.9);
+    }
+    ctx.stroke();
+  }
+  if (w.kind === "snow") {
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    for (let i = 0; i < 220; i++) {
+      const x = ((i * 71.3 + now * 30 * (0.5 + drift) * Math.sin(wind) + Math.sin(now + i) * 6) % W + W) % W;
+      const y = (i * 37.9 + now * 45) % H;
+      ctx.beginPath();
+      ctx.arc(x, y, 1.2 + (i % 3) * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
 export function render(ctx: CanvasRenderingContext2D, s: GameState, view: View) {
   const T = view.tile;
   const W = s.w * T;
@@ -274,6 +383,7 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, view: View) 
   ctx.stroke();
 
   drawTiles(ctx, s, T, runwayMarks(s, a.runways));
+  drawRunwayStatus(ctx, s, T, runwayStates(s, a));
 
   // shuttle route
   if (a.shuttleActive) {
@@ -384,6 +494,8 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, view: View) 
       ctx.fillText(l.text, lx, ly + 1);
     }
   }
+
+  drawWeather(ctx, s, T, view.clip ?? { x: 0, y: 0, w: s.w, h: s.h });
 
   // night tint
   const hour = (s.time / 60) % 24;

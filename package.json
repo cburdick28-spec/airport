@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test:sim": "tsx scripts/sim-test.ts",
-    "test:scenarios": "tsx scripts/scenario-test.ts"
+    "test:scenarios": "tsx scripts/scenario-test.ts",
+    "balance": "tsx scripts/balance.ts"
   },
   "dependencies": {
     "next": "16.4.6",

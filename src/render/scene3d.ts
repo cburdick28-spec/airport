@@ -7,9 +7,10 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { getAnalysis } from "@/game/analysis";
 import { PLANES } from "@/game/constants";
-import { runAlong, runwayMarks } from "@/game/runways";
+import { runHeadingDir, runIdx, runProgress, runStart, runwayMarks } from "@/game/runways";
 import { buildBlocker } from "@/game/simulation";
-import type { Analysis, Flight, GameState, TileType } from "@/game/types";
+import type { Analysis, Flight, GameState, TileType, WeatherKind } from "@/game/types";
+import { currentWeather, runwayStates } from "@/game/weather";
 import type { Tool } from "./renderer";
 
 export interface View3D {
@@ -19,9 +20,21 @@ export interface View3D {
 
 const INDOOR: Partial<Record<TileType, boolean>> = { floor: true, checkin: true, tsa: true, customs: true, gate: true };
 const OUTDOOR_WALK: Partial<Record<TileType, boolean>> = { sidewalk: true, shuttle: true, parking: true };
-const GATE_COLORS = ["", "#16a34a", "#d97706", "#dc2626"];
-const GATE_LETTER = ["", "S", "M", "L"];
-const TAIL_COLORS = ["#16a34a", "#2563eb", "#b91c1c"];
+const GATE_COLORS = ["", "#16a34a", "#d97706", "#dc2626", "#db2777"];
+const GATE_LETTER = ["", "S", "M", "L", "J"];
+const TAIL_COLORS = ["#16a34a", "#2563eb", "#b91c1c", "#7c3aed", "#0f172a"];
+const RAIN_N = 2600;
+const SNOW_N = 2600;
+const GLOOM: Record<WeatherKind, number> = { clear: 0, cloudy: 0.25, rain: 0.45, storm: 0.72, fog: 0.35, snow: 0.4 };
+/** fog start and end as multiples of the camera's distance from what it looks at */
+const FOG_RANGE: Record<WeatherKind, [number, number]> = {
+  clear: [2.2, 6],
+  cloudy: [1.8, 5],
+  rain: [0.9, 3],
+  storm: [0.7, 2.3],
+  fog: [0.2, 1.25],
+  snow: [0.6, 2.2],
+};
 const CAR_COLORS = ["#ef4444", "#3b82f6", "#f8fafc", "#111827", "#f59e0b", "#10b981"];
 const MAX_PAX = 3000;
 /** planes are drawn a bit larger than their 2D footprint so they read well in 3D */
@@ -133,6 +146,24 @@ export class Scene3D {
   /** keys currently held for camera panning (w/a/s/d/arrows), lowercase */
   keys = new Set<string>();
 
+  // weather
+  private rain: THREE.LineSegments;
+  private rainPos: Float32Array;
+  private snow: THREE.Points;
+  private snowPos: Float32Array;
+  private flash = 0;
+  private fogNear = 120;
+  private fogFar = 320;
+  private gloom = 0;
+  private grassBase = new THREE.Color("#86b86b");
+  private padBase = new THREE.Color("#9bc77d");
+  private snowWhite = new THREE.Color("#eef3f7");
+  private grey = new THREE.Color("#8a96a3");
+  private socks: THREE.Group[] = [];
+  private statusGroup = new THREE.Group();
+  private statusSig = "";
+  private focus = new THREE.Vector3();
+
   constructor(
     canvas: HTMLCanvasElement,
     private gw: number,
@@ -159,7 +190,7 @@ export class Scene3D {
     this.controls.screenSpacePanning = false;
     this.controls.zoomToCursor = true;
     this.controls.minDistance = 6;
-    this.controls.maxDistance = 140;
+    this.controls.maxDistance = 170;
     this.controls.maxPolarAngle = 1.38;
     this.controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
     this.controls.update();
@@ -182,7 +213,31 @@ export class Scene3D {
 
     this.makeMaterials();
     this.buildWorld(cx, cz);
-    this.scene.add(this.staticGroup, this.labelGroup);
+    this.scene.add(this.staticGroup, this.labelGroup, this.statusGroup);
+    this.focus.set(cx, 0, cz);
+
+    // rain streaks and snowflakes live in a box that follows the camera target
+    this.rainPos = new Float32Array(RAIN_N * 6);
+    const rainGeo = new THREE.BufferGeometry();
+    rainGeo.setAttribute("position", new THREE.BufferAttribute(this.rainPos, 3));
+    this.rain = new THREE.LineSegments(
+      rainGeo,
+      new THREE.LineBasicMaterial({ color: "#c7dcf5", transparent: true, opacity: 0.55, depthWrite: false }),
+    );
+    this.snowPos = new Float32Array(SNOW_N * 3);
+    const snowGeo = new THREE.BufferGeometry();
+    snowGeo.setAttribute("position", new THREE.BufferAttribute(this.snowPos, 3));
+    this.snow = new THREE.Points(
+      snowGeo,
+      new THREE.PointsMaterial({ color: "#ffffff", size: 0.14, transparent: true, opacity: 0.95, depthWrite: false }),
+    );
+    for (const m of [this.rain, this.snow]) {
+      m.frustumCulled = false;
+      m.visible = false;
+      this.scene.add(m);
+    }
+    for (let i = 0; i < RAIN_N; i++) this.seedDrop(this.rainPos, i * 6, true);
+    for (let i = 0; i < SNOW_N; i++) this.seedDrop(this.snowPos, i * 3, true);
 
     // passengers
     const bodyGeo = new THREE.CapsuleGeometry(0.085, 0.16, 3, 8);
@@ -255,6 +310,10 @@ export class Scene3D {
     this.mat("gate1", GATE_COLORS[1], { roughness: 0.5 });
     this.mat("gate2", GATE_COLORS[2], { roughness: 0.5 });
     this.mat("gate3", GATE_COLORS[3], { roughness: 0.5 });
+    this.mat("gate4", GATE_COLORS[4], { roughness: 0.5 });
+    this.mat("towerbody", "#e2e8f0", { roughness: 0.7 });
+    this.mat("towerglass", "#7dd3fc", { roughness: 0.1, metalness: 0.2, emissive: "#38bdf8", emissiveIntensity: 0.2 });
+    this.mat("sock", "#f97316", { roughness: 0.6 });
     this.mat("bridge", "#e5e7eb", { roughness: 0.5 });
     this.mat("shuttle", "#f2b705", { roughness: 0.5 });
     this.mat("trunk", "#7a5a3a");
@@ -296,7 +355,7 @@ export class Scene3D {
     // scenery trees outside the buildable area
     const b = new Batcher();
     const r = rng(1234);
-    for (let i = 0; i < 520; i++) {
+    for (let i = 0; i < 900; i++) {
       const x = -30 + r() * (this.gw + 60);
       const z = -26 + r() * (this.gh + 52);
       if (x > -2 && x < this.gw + 1 && z > -2 && z < this.gh + 1) continue;
@@ -328,6 +387,7 @@ export class Scene3D {
 
   private rebuildStatic(s: GameState, a: Analysis) {
     this.clearGroup(this.staticGroup);
+    this.socks = [];
     this.clearGroup(this.labelGroup);
     const b = new Batcher();
     const M = this.mats;
@@ -410,6 +470,19 @@ export class Scene3D {
               box(car, cxp, 0.12, czp, 0.17, 0.1, 0.4, 0, true);
               box("dark", cxp, 0.2, czp - 0.02, 0.15, 0.08, 0.2, 0, true);
             }
+            break;
+          }
+          case "tower": {
+            const hgt = 2.4 + t.level * 0.8;
+            box("sidewalk", x, 0.04, z, 1, 0.08, 1);
+            box("towerbody", x, 0.2, z, 0.8, 0.3, 0.8);
+            b.add("cyl", this.cyl, "towerbody", M.towerbody, x, hgt / 2, z, 0.36, hgt, 0.36);
+            b.add("cyl", this.cyl, "towerbody", M.towerbody, x, hgt - 0.02, z, 0.7, 0.12, 0.7);
+            b.add("cyl", this.cyl, "towerglass", M.towerglass, x, hgt + 0.22, z, 0.8, 0.36, 0.8);
+            b.add("cyl", this.cyl, "dark", M.dark, x, hgt + 0.44, z, 0.9, 0.08, 0.9);
+            if (t.level >= 2) box("white", x, hgt + 0.62, z, 0.56, 0.05, 0.05); // ILS antenna
+            if (t.level >= 3) b.add("ball", this.ball, "white", M.white, x - 0.18, hgt + 0.7, z, 0.36, 0.36, 0.36); // radar
+            this.addSock(x + 0.32, hgt + 0.5, z);
             break;
           }
           case "shuttle": {
@@ -573,30 +646,43 @@ export class Scene3D {
       g.add(m);
       return m;
     };
-    const fus = new THREE.CapsuleGeometry(0.06, 0.82, 6, 14);
+    const jumbo = cls === 3;
+    const sst = cls === 4;
+    const radius = jumbo ? 0.075 : sst ? 0.042 : 0.06;
+    const fus = new THREE.CapsuleGeometry(radius, sst ? 0.9 : 0.82, 6, 14);
     fus.rotateZ(Math.PI / 2);
     const body = new THREE.Mesh(fus, M.plane);
     body.castShadow = true;
     body.position.y = 0.1;
     g.add(body);
-    add(this.box, M.dark, 0.4, 0.125, 0, 0.07, 0.035, 0.09); // cockpit glass
-    add(this.box, M["tail" + cls], 0, 0.1, 0, 0.7, 0.018, 0.123); // cheatline
-    // wings (swept back)
-    add(this.box, M.plane, -0.07, 0.085, 0.26, 0.17, 0.014, 0.5, -0.34);
-    add(this.box, M.plane, -0.07, 0.085, -0.26, 0.17, 0.014, 0.5, 0.34);
-    // tailplane + fin
-    add(this.box, M.plane, -0.43, 0.11, 0.1, 0.09, 0.012, 0.19, -0.3);
-    add(this.box, M.plane, -0.43, 0.11, -0.1, 0.09, 0.012, 0.19, 0.3);
-    add(this.box, M["tail" + cls], -0.42, 0.21, 0, 0.14, 0.17, 0.016, 0, 0.3);
-    // engines
+    add(this.box, M.dark, 0.4, 0.1 + radius * 0.45, 0, 0.07, 0.035, radius * 1.5); // cockpit glass
+    add(this.box, M["tail" + cls], 0, 0.1, 0, 0.7, 0.018, radius * 2.05); // cheatline
+    if (jumbo) add(this.box, M.plane, 0.2, 0.165, 0, 0.36, 0.05, 0.1); // upper deck
     const eng = new THREE.CylinderGeometry(0.5, 0.5, 1, 12);
     eng.rotateZ(Math.PI / 2);
-    const spots = cls === 2 ? [0.16, 0.32] : [0.18];
-    for (const zz of spots)
-      for (const sgn of [1, -1]) {
-        add(eng, M.engine, -0.02 - zz * 0.25, 0.055, zz * sgn, 0.13, 0.058, 0.058);
-        if (cls === 0) add(this.box, M.dark, 0.05 - zz * 0.25, 0.055, zz * sgn, 0.008, 0.16, 0.02); // propeller
-      }
+    if (sst) {
+      // slim delta wing, tall swept fin, engines tucked under the wing
+      add(this.box, M.plane, -0.2, 0.085, 0.15, 0.38, 0.012, 0.3, -0.75);
+      add(this.box, M.plane, -0.2, 0.085, -0.15, 0.38, 0.012, 0.3, 0.75);
+      add(this.box, M["tail" + cls], -0.38, 0.22, 0, 0.2, 0.2, 0.014, 0, 0.5);
+      for (const zz of [0.07, 0.13]) for (const sgn of [1, -1]) add(eng, M.engine, -0.28, 0.055, zz * sgn, 0.16, 0.04, 0.04);
+    } else {
+      // wings (swept back)
+      const span = jumbo ? 0.58 : 0.5;
+      add(this.box, M.plane, -0.07, 0.085, span / 2 + 0.01, 0.19, 0.014, span, -0.34);
+      add(this.box, M.plane, -0.07, 0.085, -span / 2 - 0.01, 0.19, 0.014, span, 0.34);
+      // tailplane + fin
+      add(this.box, M.plane, -0.43, 0.11, 0.1, 0.09, 0.012, 0.19, -0.3);
+      add(this.box, M.plane, -0.43, 0.11, -0.1, 0.09, 0.012, 0.19, 0.3);
+      add(this.box, M["tail" + cls], -0.42, 0.21, 0, 0.14, 0.17, 0.016, 0, 0.3);
+      // engines
+      const spots = cls >= 2 ? [0.16, 0.32] : [0.18];
+      for (const zz of spots)
+        for (const sgn of [1, -1]) {
+          add(eng, M.engine, -0.02 - zz * 0.25, 0.055, zz * sgn, 0.13, 0.058, 0.058);
+          if (cls === 0) add(this.box, M.dark, 0.05 - zz * 0.25, 0.055, zz * sgn, 0.008, 0.16, 0.02); // propeller
+        }
+    }
     // landing gear
     add(this.box, M.tire, 0.3, 0.02, 0, 0.03, 0.04, 0.03);
     add(this.box, M.tire, -0.08, 0.02, 0.08, 0.04, 0.04, 0.03);
@@ -604,6 +690,107 @@ export class Scene3D {
     const L = PLANES[cls].size * PLANE_SCALE;
     g.scale.setScalar(L);
     return g;
+  }
+
+  private addSock(x: number, y: number, z: number) {
+    const g = new THREE.Group();
+    g.position.set(x, y, z);
+    const pole = new THREE.Mesh(this.box, this.mats.rail);
+    pole.scale.set(0.03, 0.5, 0.03);
+    pole.position.y = -0.2;
+    const cone = new THREE.ConeGeometry(0.07, 0.36, 8);
+    cone.rotateZ(Math.PI / 2);
+    const sock = new THREE.Mesh(cone, this.mats.sock);
+    sock.position.x = -0.2;
+    g.add(pole, sock);
+    this.staticGroup.add(g);
+    this.socks.push(g);
+  }
+
+  private seedDrop(arr: Float32Array, i: number, anyHeight: boolean) {
+    const c = this.controls.target;
+    const x = c.x + (Math.random() - 0.5) * 90;
+    const z = c.z + (Math.random() - 0.5) * 90;
+    const y = anyHeight ? Math.random() * 30 : 26 + Math.random() * 6;
+    arr[i] = x;
+    arr[i + 1] = y;
+    arr[i + 2] = z;
+  }
+
+  private updateParticles(kind: WeatherKind, windDir: number, windSpeed: number, dt: number) {
+    const rainy = kind === "rain" || kind === "storm";
+    this.rain.visible = rainy;
+    this.snow.visible = kind === "snow";
+    // wind blows towards windDir + 180 (compass: 0 = -z, 90 = +x)
+    const to = ((windDir + 180) * Math.PI) / 180;
+    const wx = Math.sin(to) * windSpeed * 0.12;
+    const wz = -Math.cos(to) * windSpeed * 0.12;
+    if (rainy) {
+      const fall = kind === "storm" ? 34 : 26;
+      const p = this.rainPos;
+      for (let i = 0; i < RAIN_N; i++) {
+        const k = i * 6;
+        p[k] += wx * dt;
+        p[k + 1] -= fall * dt;
+        p[k + 2] += wz * dt;
+        if (p[k + 1] < 0) this.seedDrop(p, k, false);
+        p[k + 3] = p[k] + wx * 0.03;
+        p[k + 4] = p[k + 1] - 0.55;
+        p[k + 5] = p[k + 2] + wz * 0.03;
+      }
+      this.rain.geometry.attributes.position.needsUpdate = true;
+    }
+    if (kind === "snow") {
+      const p = this.snowPos;
+      const t = performance.now() / 1000;
+      for (let i = 0; i < SNOW_N; i++) {
+        const k = i * 3;
+        p[k] += (wx * 0.5 + Math.sin(t + i) * 0.3) * dt;
+        p[k + 1] -= 2.4 * dt;
+        p[k + 2] += (wz * 0.5 + Math.cos(t * 0.8 + i) * 0.3) * dt;
+        if (p[k + 1] < 0) this.seedDrop(p, k, false);
+      }
+      this.snow.geometry.attributes.position.needsUpdate = true;
+    }
+  }
+
+  /** red wash on closed runways, amber on limited ones, green chevrons for the landing direction */
+  private updateRunwayStatus(s: GameState, a: Analysis) {
+    const states = runwayStates(s, a);
+    const sig = states.map((st) => `${st.run.key}:${st.status}:${st.dir}`).join("|") + "@" + s.version;
+    if (sig === this.statusSig) return;
+    this.statusSig = sig;
+    for (const c of [...this.statusGroup.children]) this.statusGroup.remove(c);
+    const red = new THREE.MeshBasicMaterial({ color: "#ef4444", transparent: true, opacity: 0.38, depthWrite: false });
+    const amber = new THREE.MeshBasicMaterial({ color: "#f59e0b", transparent: true, opacity: 0.3, depthWrite: false });
+    const green = new THREE.MeshBasicMaterial({ color: "#22c55e", toneMapped: false });
+    for (const st of states) {
+      const r = st.run;
+      const mid = (r.a0 + r.a1) / 2;
+      if (st.status !== "open") {
+        const m = new THREE.Mesh(this.box, st.status === "closed" ? red : amber);
+        m.position.set(r.vertical ? r.line : mid, 0.075, r.vertical ? mid : r.line);
+        m.scale.set(r.vertical ? 1 : r.len, 0.01, r.vertical ? r.len : 1);
+        this.statusGroup.add(m);
+      }
+      if (st.status === "closed") continue;
+      const hd = runHeadingDir(r, st.dir);
+      const start = runStart(r, st.dir);
+      for (let i = 0; i < 3; i++) {
+        const idx = runIdx(s, r, start + st.dir * (1 + i));
+        const chevron = new THREE.Group();
+        chevron.position.set(idx % s.w, 0.08, Math.floor(idx / s.w));
+        chevron.rotation.y = -hd;
+        for (const sgn of [1, -1]) {
+          const arm = new THREE.Mesh(this.box, green);
+          arm.scale.set(0.42, 0.012, 0.07);
+          arm.position.set(-0.1, 0, sgn * 0.13);
+          arm.rotation.y = sgn * 0.75;
+          chevron.add(arm);
+        }
+        this.statusGroup.add(chevron);
+      }
+    }
   }
 
   private makeBus(): THREE.Group {
@@ -648,7 +835,7 @@ export class Scene3D {
     const L = PLANES[f.cls].size * PLANE_SCALE;
     let alt = 0;
     let pitch = 0;
-    const before = f.run ? f.run.a0 - runAlong(f.run, f.x, f.y) : 0;
+    const before = f.run ? -runProgress(f.run, f.dir, f.x, f.y) : 0;
     if (f.state === "landing" && before > 0) {
       alt = Math.min(1, before / 12);
       pitch = 0.05 + alt * 0.04;
@@ -751,36 +938,69 @@ export class Scene3D {
     });
   }
 
-  private updateSky(s: GameState) {
+  private updateSky(s: GameState, dt: number) {
     const hour = (s.time / 60) % 24;
     const arc = Math.max(0, Math.min(1, (hour - 5.5) / 15)) * Math.PI;
     const elev = Math.sin(arc);
     const day = smooth(0, 0.22, elev);
-    const cx = (this.gw - 1) / 2;
-    const cz = (this.gh - 1) / 2;
+    const cx = this.focus.x;
+    const cz = this.focus.z;
+    const w = currentWeather(s);
+    const k = Math.min(1, dt * 1.5);
+    const dist = Math.max(15, this.camera.position.distanceTo(this.controls.target));
+    this.gloom += (GLOOM[w.kind] - this.gloom) * k;
+    this.fogNear += (FOG_RANGE[w.kind][0] * dist - this.fogNear) * k;
+    this.fogFar += (Math.max(60, FOG_RANGE[w.kind][1] * dist) - this.fogFar) * k;
 
     if (day > 0.02) {
       this.sun.position.set(cx - Math.cos(arc) * 55, 10 + elev * 55, cz + 26);
       this.sun.color.copy(this.sunWarm).lerp(this.sunWhite, smooth(0.1, 0.6, elev));
-      this.sun.intensity = 0.25 + 2.7 * day;
+      this.sun.intensity = (0.25 + 2.7 * day) * (1 - this.gloom * 0.85);
     } else {
       this.sun.position.set(cx - 25, 50, cz + 15);
       this.sun.color.copy(this.moon);
-      this.sun.intensity = 0.8;
+      this.sun.intensity = 0.8 * (1 - this.gloom * 0.6);
     }
-    this.hemi.intensity = 0.5 + 0.6 * day;
+    this.sun.target.position.set(cx, 0, cz);
+    this.hemi.intensity = (0.5 + 0.6 * day) * (1 - this.gloom * 0.25);
+
+    // lightning
+    if (w.kind === "storm" && Math.random() < dt * 0.35) this.flash = 0.18;
+    if (this.flash > 0) {
+      this.flash -= dt;
+      this.hemi.intensity += 6 * Math.max(0, this.flash);
+    }
 
     const sky = this.tmpC.copy(this.skyNight).lerp(this.skyDay, day);
-    const warm = Math.max(0, Math.min(1, 1 - elev / 0.45)) * day;
+    const warm = Math.max(0, Math.min(1, 1 - elev / 0.45)) * day * (1 - this.gloom);
     sky.lerp(this.skyDusk, warm * 0.65);
+    sky.lerp(this.grey.clone().multiplyScalar(0.25 + 0.75 * day), this.gloom);
+    if (w.kind === "fog") sky.lerp(this.snowWhite.clone().multiplyScalar(0.3 + 0.55 * day), 0.6);
     (this.scene.background as THREE.Color).copy(sky);
-    (this.scene.fog as THREE.Fog).color.copy(sky);
+    const fog = this.scene.fog as THREE.Fog;
+    fog.color.copy(sky);
+    fog.near = this.fogNear;
+    fog.far = this.fogFar;
 
-    const night = 1 - day;
+    // snow settles on the grass
+    this.mats.grass.color.copy(this.grassBase).lerp(this.snowWhite, s.snowCover * 0.85);
+    this.mats.pad.color.copy(this.padBase).lerp(this.snowWhite, s.snowCover * 0.85);
+
+    // windsocks swing to point downwind
+    const to = ((w.windDir + 180) * Math.PI) / 180;
+    for (const sock of this.socks) {
+      sock.rotation.y = Math.atan2(Math.cos(to), Math.sin(to)) + Math.PI;
+      sock.rotation.z = (1 - Math.min(1, w.windSpeed / 22)) * 0.9;
+    }
+
+    this.updateParticles(w.kind, w.windDir, w.windSpeed, dt);
+
+    const night = Math.max(1 - day, this.gloom * 0.6);
     this.mats.glass.emissiveIntensity = night * 0.55;
     this.mats.rwlight.emissiveIntensity = 0.5 + night * 3;
     this.mats.txlight.emissiveIntensity = 0.5 + night * 2.5;
     this.mats.screen.emissiveIntensity = 0.8 + night * 1.2;
+    this.mats.towerglass.emissiveIntensity = 0.2 + night * 1.2;
   }
 
   private updateCameraKeys(dt: number) {
@@ -840,6 +1060,17 @@ export class Scene3D {
     const cx = (x0 + x1) / 2;
     const cz = (z0 + z1) / 2;
     const d = Math.max(x1 - x0, (z1 - z0) * 1.5) * 0.74 + 10;
+    // aim the sun's shadow camera at the airport itself so shadows stay sharp on the big map
+    this.focus.set(cx, 0, cz);
+    const sc = this.sun.shadow.camera;
+    const half = Math.max(x1 - x0, z1 - z0) / 2 + 14;
+    sc.left = -half;
+    sc.right = half;
+    sc.top = half;
+    sc.bottom = -half;
+    sc.updateProjectionMatrix();
+    for (let i = 0; i < RAIN_N; i++) this.seedDrop(this.rainPos, i * 6, true);
+    for (let i = 0; i < SNOW_N; i++) this.seedDrop(this.snowPos, i * 3, true);
     this.controls.target.set(cx, 0, cz);
     this.camera.position.set(cx, d * 0.62, cz + d * 0.8);
     this.controls.update();
@@ -879,7 +1110,8 @@ export class Scene3D {
     this.controls.target.y = 0;
     this.controls.update();
 
-    this.updateSky(s);
+    this.updateSky(s, dt);
+    this.updateRunwayStatus(s, a);
     this.updatePlanes(s, dt);
     this.updateBuses(s);
     this.updatePassengers(s);

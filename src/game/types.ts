@@ -11,16 +11,31 @@ export type TileType =
   | "customs"
   | "gate"
   | "runway"
-  | "taxiway";
+  | "taxiway"
+  | "tower";
 
 export interface Tile {
   type: TileType;
-  /** 1..3. For gates: 1 = Small, 2 = Medium, 3 = Large. */
+  /** 1..4. For gates: 1 = Small, 2 = Medium, 3 = Large, 4 = Jumbo. */
   level: number;
 }
 
-/** 0 = regional turboprop, 1 = narrow-body, 2 = wide-body */
-export type PlaneClass = 0 | 1 | 2;
+/** 0 regional, 1 narrow-body, 2 wide-body, 3 super jumbo, 4 supersonic */
+export type PlaneClass = 0 | 1 | 2 | 3 | 4;
+
+export type WeatherKind = "clear" | "cloudy" | "rain" | "storm" | "fog" | "snow";
+
+export interface WeatherSpell {
+  kind: WeatherKind;
+  start: number;
+  end: number;
+  /** compass direction the wind blows FROM, in degrees (0 = top of the map) */
+  windDir: number;
+  /** knots */
+  windSpeed: number;
+}
+
+export type Climate = "temperate" | "coastal" | "southern";
 
 export type StepKind = "checkin" | "tsa" | "customs" | "gate" | "exit";
 
@@ -84,6 +99,8 @@ export interface Flight {
   pathIdx: number;
   arriveAt: number;
   departAt: number;
+  /** when the flight is due to take off, set at booking (for on-time stats) */
+  schedDep: number;
   depBooked: number;
   depSpawned: number;
   spawnTimes: number[];
@@ -93,6 +110,12 @@ export interface Flight {
   timer: number;
   /** the runway this flight lands on / departs from */
   run: RunwayRun | null;
+  /** direction of travel along the runway: 1 = towards a1, -1 = towards a0 */
+  dir: 1 | -1;
+  /** minutes spent circling, waiting for a runway */
+  holding: number;
+  /** why the plane is circling (empty when it is not) */
+  holdReason: string;
   onRunway: boolean;
   done: boolean;
   /** id of the airline contract this flight counts toward (0 = none) */
@@ -155,7 +178,7 @@ export interface GameState {
   money: number;
   /** game minutes since day 1, 00:00 */
   time: number;
-  tier: 1 | 2 | 3;
+  tier: 1 | 2 | 3 | 4 | 5;
   served: number;
   satisfaction: number;
   drivers: number;
@@ -188,6 +211,25 @@ export interface GameState {
   contracts: Contract[];
   nextOffer: number;
   contractsCompleted: number;
+  // ---- weather ----
+  climate: Climate;
+  /** current spell first, then the coming ones */
+  forecast: WeatherSpell[];
+  snowCrews: number;
+  /** no storms, fog or snow before this time (gentle start) */
+  calmUntil: number;
+  /** 0..1, how much snow has built up (for visuals) */
+  snowCover: number;
+  // ---- economy ----
+  loan: number;
+  /** index into FEES */
+  fees: number;
+  /** rolling on-time departure rate, 0..100 */
+  otp: number;
+  diversions: number;
+  bankrupt: boolean;
+  /** scenario this airport was started from (for restarting) */
+  scenarioId: string;
 }
 
 /**
@@ -220,8 +262,8 @@ export interface GateInfo {
   issues: string[];
   /** landside + airside all good for at least regional flights */
   functional: boolean;
-  /** highest plane class this gate can physically take right now (-1 = none). Ignores tier. */
-  maxClass: number;
+  /** plane classes this gate can physically take right now. Ignores tier. */
+  classes: number[];
   parking: number[];
 }
 
@@ -243,6 +285,8 @@ export interface Analysis {
   stops: number[];
   shuttleActive: boolean;
   classStatus: ClassStatus[];
+  /** highest control tower level built (0 = none) */
+  tower: number;
 }
 
 export interface TileInfo {

@@ -3,7 +3,21 @@
 
 import { BUILD } from "@/game/constants";
 import { clearSave, loadGame, saveGame } from "@/game/save";
-import { build, demolish, fireDriver, hireDriver, runMarketing, signContract, upgrade, type ActionResult } from "@/game/simulation";
+import {
+  build,
+  demolish,
+  fireDriver,
+  fireSnowCrew,
+  hireDriver,
+  hireSnowCrew,
+  repayLoan,
+  runMarketing,
+  setFees,
+  signContract,
+  takeLoan,
+  upgrade,
+  type ActionResult,
+} from "@/game/simulation";
 import { SCENARIOS } from "@/game/scenarios";
 import { createTutorialAirport } from "@/game/starter";
 import type { GameState } from "@/game/types";
@@ -130,10 +144,25 @@ export const store = {
     if (res.msg) store.say(res.msg, res.ok ? "good" : "bad");
     else store.bump();
   },
-  staff(action: "hire" | "fire" | "marketing") {
+  staff(action: "hire" | "fire" | "marketing" | "snowHire" | "snowFire" | "loan" | "repay") {
     const s = store.state;
     if (!s) return;
-    const res = action === "hire" ? hireDriver(s) : action === "fire" ? fireDriver(s) : runMarketing(s);
+    const act = {
+      hire: hireDriver,
+      fire: fireDriver,
+      marketing: runMarketing,
+      snowHire: hireSnowCrew,
+      snowFire: fireSnowCrew,
+      loan: takeLoan,
+      repay: repayLoan,
+    }[action];
+    const res = act(s);
     store.say(res.msg, res.ok ? "good" : "bad");
+  },
+  setFees(level: number) {
+    const s = store.state;
+    if (!s) return;
+    const res = setFees(s, level);
+    store.say(res.msg, "info");
   },
 };

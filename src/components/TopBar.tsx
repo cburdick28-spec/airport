@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { TIER_NAMES } from "@/game/constants";
 import { currentDemand } from "@/game/simulation";
+import { currentWeather } from "@/game/weather";
+import WeatherBadge from "./WeatherBadge";
 import type { GameState } from "@/game/types";
 import { clock, money } from "./format";
 import { store } from "./store";
@@ -34,7 +36,9 @@ export default function TopBar({ s }: { s: GameState }) {
       <Stat label={`Tier ${s.tier}`} value={TIER_NAMES[s.tier]} tone="text-sky-300" />
       <Stat label="Passengers served" value={s.served.toLocaleString("en-US")} />
       <Stat label="Satisfaction" value={`${sat}%`} tone={satTone} />
+      <Stat label="On time" value={`${Math.round(s.otp)}%`} tone={s.otp >= 85 ? "text-emerald-400" : s.otp >= 65 ? "text-amber-400" : "text-rose-400"} />
       <Stat label="Demand" value={`${Math.round(currentDemand(s))} pax/hr`} />
+      <WeatherBadge w={currentWeather(s)} />
       <div className="ml-auto flex items-center gap-3">
         <span className="text-sm font-medium tabular-nums text-slate-300">{clock(s.time)}</span>
         <div className="flex overflow-hidden rounded-md border border-slate-600 text-sm">

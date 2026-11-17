@@ -5,9 +5,15 @@ import {
   BUILD,
   DRIVER_HIRE_COST,
   DRIVER_WAGE,
+  FEES,
+  LOAN_RATE,
+  LOAN_STEP,
   MARKETING_COST,
+  SNOW_CREW_HIRE,
+  SNOW_CREW_WAGE,
   type Category,
 } from "@/game/constants";
+import { maxLoan } from "@/game/simulation";
 import type { GameState, TileType } from "@/game/types";
 import { money } from "./format";
 import { store } from "./store";
@@ -30,6 +36,7 @@ const SWATCH: Record<string, string> = {
   gate: "bg-green-600",
   runway: "bg-slate-700",
   taxiway: "bg-slate-400",
+  tower: "bg-sky-300",
 };
 
 function Item(props: {
@@ -131,9 +138,9 @@ export default function BuildMenu({ s }: { s: GameState }) {
         {tab === "airside" && (
           <Item
             swatch="bg-amber-600"
-            title="Medium / Large Gate"
+            title="Medium / Large / Jumbo"
             sub="Upgrade a Small gate"
-            hint="Pick the Upgrade tool, then click a gate. Medium +$8,000, Large +$16,000."
+            hint="Pick the Upgrade tool, then click a gate. Medium +$8,000, Large +$16,000, Jumbo +$30,000 (for Super Jumbos)."
             active={tool?.kind === "upgrade"}
             onClick={() => store.setTool({ kind: "upgrade" })}
           />
@@ -156,6 +163,52 @@ export default function BuildMenu({ s }: { s: GameState }) {
               onClick={() => store.staff("fire")}
             />
             <Item
+              swatch="bg-cyan-200"
+              title="Hire Snow Crew"
+              sub={`${money(SNOW_CREW_HIRE)} · ${money(SNOW_CREW_WAGE)}/hr`}
+              hint="Each crew keeps one runway plowed during snow (longest runways first)."
+              onClick={() => store.staff("snowHire")}
+            />
+            <Item
+              swatch="bg-slate-500"
+              title="Dismiss Snow Crew"
+              sub={`${s.snowCrews} on payroll`}
+              hint="Saves the wage, but one fewer runway stays open in snow."
+              disabled={s.snowCrews === 0}
+              onClick={() => store.staff("snowFire")}
+            />
+            <Item
+              swatch="bg-emerald-500"
+              title={`Borrow ${money(LOAN_STEP)}`}
+              sub={`${money(s.loan)} of ${money(maxLoan(s))} used`}
+              hint={`Bank loan at ${LOAN_RATE * 100}% interest a day, charged hourly. Repay any time.`}
+              disabled={s.loan + LOAN_STEP > maxLoan(s)}
+              onClick={() => store.staff("loan")}
+            />
+            <Item
+              swatch="bg-emerald-800"
+              title="Repay Loan"
+              sub={s.loan > 0 ? `${money(Math.min(LOAN_STEP, s.loan))} now` : "No loan"}
+              hint="Pays back part of the loan to stop the interest."
+              disabled={s.loan === 0}
+              onClick={() => store.staff("repay")}
+            />
+            <div className="flex shrink-0 flex-col justify-center gap-1 rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5">
+              <span className="text-xs text-slate-400">Airport fees</span>
+              <div className="flex overflow-hidden rounded border border-slate-600 text-xs">
+                {FEES.map((f, i) => (
+                  <button
+                    key={f.name}
+                    onClick={() => store.setFees(i)}
+                    title={`${Math.round(f.revenue * 100)}% landing fees and commissions, ${Math.round(f.demand * 100)}% passenger demand`}
+                    className={`px-2 py-0.5 font-semibold ${s.fees === i ? "bg-sky-500 text-white" : "hover:bg-slate-700"}`}
+                  >
+                    {f.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <Item
               swatch="bg-pink-500"
               title="Marketing Campaign"
               sub={marketingOn ? "Running: +35% demand" : `${money(MARKETING_COST)} · 12h`}
@@ -167,7 +220,7 @@ export default function BuildMenu({ s }: { s: GameState }) {
               swatch="bg-violet-500"
               title="Upgrade Tool"
               sub="Faster desks, bigger gates"
-              hint="Click a parking lot, check-in, TSA, customs or gate to level it up. More TSA agents = faster screening."
+              hint="Click a parking lot, check-in, TSA, customs, gate or control tower to level it up. More TSA agents = faster screening."
               active={tool?.kind === "upgrade"}
               onClick={() => store.setTool({ kind: "upgrade" })}
             />

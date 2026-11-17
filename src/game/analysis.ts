@@ -1,9 +1,10 @@
 // Layout analysis: which gates work, why they don't, and what each flight class is waiting on.
 // Cached per layout version, so it is cheap to call every frame.
 
-import { BUILD, GATE_SIZE, PARKING_SPOTS, PLANES, SERVICE_TIME, TIER2_PAX, TIER2_SAT, TIER3_PAX } from "./constants";
+import { BUILD, GATE_SIZE, PARKING_SPOTS, PLANES, SERVICE_TIME, TOWER_FORECAST_HOURS, type Tier } from "./constants";
 import { fieldTo, isWalkable, neighbors, shuttleActive, taxiReach } from "./pathfinding";
 import { findRunways, runHas, runIdx } from "./runways";
+import { crosswind, crosswindLimit, runwayBlock, runwayDir } from "./weather";
 import type { Analysis, ClassStatus, GameState, GateInfo, RunwayRun, TileInfo } from "./types";
 
 const cache = new WeakMap<GameState, Analysis>();
@@ -24,6 +25,7 @@ export function getAnalysis(s: GameState): Analysis {
   const stops: number[] = [];
   const gateIdx: number[] = [];
   let parkingSpots = 0;
+  let tower = 0;
   for (let i = 0; i < s.tiles.length; i++) {
     const t = s.tiles[i];
     switch (t.type) {
@@ -45,6 +47,9 @@ export function getAnalysis(s: GameState): Analysis {
         break;
       case "gate":
         gateIdx.push(i);
+        break;
+      case "tower":
+        tower = Math.max(tower, t.level);
         break;
     }
   }
@@ -105,23 +110,25 @@ export function getAnalysis(s: GameState): Analysis {
       );
 
     const functional = issues.length === 0;
-    let maxClass = -1;
+    const hasCustoms = anyFinite(field, customs);
+    const classes: number[] = [];
     if (functional && runway) {
-      for (let c = 0; c < level; c++) if (runway.len >= PLANES[c].minRunway) maxClass = c;
-      if (maxClass === 2 && !anyFinite(field, customs)) maxClass = 1;
-    }
-    // soft hints: the gate works, just not for its biggest planes
-    if (functional && runway) {
-      if (level >= 2 && runway.len < PLANES[1].minRunway)
-        issues.push(`Narrow-body jets need a ${PLANES[1].minRunway}-tile runway (have ${runway.len})`);
-      if (level >= 3 && runway.len < PLANES[2].minRunway)
-        issues.push(`Wide-body jets need a ${PLANES[2].minRunway}-tile runway (have ${runway.len})`);
-      if (level >= 3 && !anyFinite(field, customs)) issues.push("International flights need a connected Customs zone");
-      if (level >= 2 && s.tier < 2) issues.push("Narrow-body flights require Tier 2 Airport");
-      if (level >= 3 && s.tier < 3) issues.push("Wide-body flights require Tier 3 Airport");
+      PLANES.forEach((def, c) => {
+        if (level >= def.gate && runway.len >= def.minRunway && (!def.intl || hasCustoms)) classes.push(c);
+      });
+      // soft hints: the gate works, just not for its biggest planes
+      PLANES.forEach((def, c) => {
+        if (c === 0 || level < def.gate || classes.includes(c)) return;
+        if (runway.len < def.minRunway)
+          issues.push(`${def.name} needs a ${def.minRunway}-tile runway (longest here is ${runway.len})`);
+        else if (def.intl && !hasCustoms) issues.push(`${def.short} flights need a connected Customs zone`);
+      });
+      PLANES.forEach((def, c) => {
+        if (classes.includes(c) && s.tier < def.tier) issues.push(`${def.short} flights require Tier ${def.tier}`);
+      });
     }
 
-    gates.push({ idx, name: "G" + (n + 1), level, stand, runway, runways: reachable, issues, functional, maxClass, parking: reachParking });
+    gates.push({ idx, name: "G" + (n + 1), level, stand, runway, runways: reachable, issues, functional, classes, parking: reachParking });
   });
 
   const classStatus = buildClassStatus(s, gates, parking, checkins, tsas, customs, runways);
@@ -138,6 +145,7 @@ export function getAnalysis(s: GameState): Analysis {
     stops,
     shuttleActive: shuttleActive(s),
     classStatus,
+    tower,
   };
   cache.set(s, result);
   return result;
@@ -165,28 +173,19 @@ function buildClassStatus(
   else if (!gates.some((g) => g.functional)) reason = `${gates[0].name}: ${gates[0].issues[0]}`;
   out.push({ ok: reason === "", reason: reason || "Regional flights operating" });
 
-  // Domestic
-  reason = "";
-  if (s.tier < 2) reason = "Requires Tier 2 Airport";
-  else if (!gates.some((g) => g.level >= 2)) reason = "Needs a Medium gate";
-  else if (longest < PLANES[1].minRunway) reason = `Runway too short (${longest}/${PLANES[1].minRunway})`;
-  else if (!gates.some((g) => g.maxClass >= 1)) {
-    const g = gates.find((x) => x.level >= 2);
-    reason = g ? `${g.name}: ${g.issues[0] ?? "not connected"}` : "Needs a Medium gate";
+  for (let c = 1; c < PLANES.length; c++) {
+    const def = PLANES[c];
+    reason = "";
+    if (s.tier < def.tier) reason = `Requires Tier ${def.tier} Airport`;
+    else if (!gates.some((g) => g.level >= def.gate)) reason = `Needs a ${GATE_SIZE[def.gate]} gate`;
+    else if (def.intl && customs.length === 0) reason = "Needs a Customs / Immigration zone";
+    else if (longest < def.minRunway) reason = `Runway too short (${longest}/${def.minRunway})`;
+    else if (!gates.some((g) => g.classes.includes(c))) {
+      const g = gates.find((x) => x.level >= def.gate);
+      reason = g ? `${g.name}: ${g.issues[0] ?? "not connected"}` : `Needs a ${GATE_SIZE[def.gate]} gate`;
+    }
+    out.push({ ok: reason === "", reason: reason || `${def.short} flights operating` });
   }
-  out.push({ ok: reason === "", reason: reason || "Domestic flights operating" });
-
-  // International
-  reason = "";
-  if (s.tier < 3) reason = "Requires Tier 3 Airport";
-  else if (!gates.some((g) => g.level >= 3)) reason = "Needs a Large gate";
-  else if (customs.length === 0) reason = "Needs a Customs / Immigration zone";
-  else if (longest < PLANES[2].minRunway) reason = `Runway too short (${longest}/${PLANES[2].minRunway})`;
-  else if (!gates.some((g) => g.maxClass >= 2)) {
-    const g = gates.find((x) => x.level >= 3);
-    reason = g ? `${g.name}: ${g.issues[0] ?? "not connected"}` : "Needs a Large gate";
-  }
-  out.push({ ok: reason === "", reason: reason || "International flights operating" });
   return out;
 }
 
@@ -195,22 +194,60 @@ export interface TierProgress {
   done: boolean;
 }
 
+export const TIER_UNLOCKS = [
+  "",
+  "Regional turboprops",
+  "Narrow-body jets",
+  "Wide-body international jets",
+  "Super Jumbos (Jumbo gate, 22-tile runway) and much more demand",
+  "Supersonic jets (24-tile runway): tiny planes, huge fares",
+];
+
+/** what it takes to reach `tier` (empty for tier 1 or beyond the top) */
+export function tierRequirements(s: GameState, tier: number): TierProgress[] {
+  const a = getAnalysis(s);
+  const served = (n: number) => ({ label: `${Math.min(s.served, n).toLocaleString("en-US")}/${n.toLocaleString("en-US")} passengers served`, done: s.served >= n });
+  const sat = (n: number) => ({ label: `${Math.round(s.satisfaction)}% / ${n}% satisfaction`, done: s.satisfaction >= n });
+  const longRunways = a.runways.filter((r) => r.len >= 12).length;
+  const working = a.gates.filter((g) => g.functional).length;
+  const longest = a.runways.reduce((m, r) => Math.max(m, r.len), 0);
+  switch (tier) {
+    case 2:
+      return [served(500), sat(80), { label: "At least one Medium gate", done: a.gates.some((g) => g.level >= 2) }];
+    case 3:
+      return [
+        served(2500),
+        { label: "Customs / Immigration zone", done: a.customs.length > 0 },
+        { label: "At least one Large gate", done: a.gates.some((g) => g.level >= 3) },
+      ];
+    case 4:
+      return [
+        served(25000),
+        sat(85),
+        { label: `${Math.min(longRunways, 2)}/2 runways of 12+ tiles`, done: longRunways >= 2 },
+        { label: `${Math.min(working, 10)}/10 working gates`, done: working >= 10 },
+        { label: "Control Tower level 2 (ILS)", done: a.tower >= 2 },
+      ];
+    case 5:
+      return [
+        served(100000),
+        sat(88),
+        { label: `${Math.round(s.otp)}% / 85% on-time departures`, done: s.otp >= 85 },
+        { label: "A Jumbo gate", done: a.gates.some((g) => g.level >= 4) },
+        { label: `A 24-tile runway (longest ${longest})`, done: longest >= 24 },
+      ];
+    default:
+      return [];
+  }
+}
+
 /** checklist for the next tier (empty at max tier) */
 export function tierProgress(s: GameState): TierProgress[] {
-  const a = getAnalysis(s);
-  if (s.tier === 1)
-    return [
-      { label: `${Math.min(s.served, TIER2_PAX)}/${TIER2_PAX} passengers served`, done: s.served >= TIER2_PAX },
-      { label: `${Math.round(s.satisfaction)}% / ${TIER2_SAT}% satisfaction`, done: s.satisfaction >= TIER2_SAT },
-      { label: "At least one Medium gate", done: a.gates.some((g) => g.level >= 2) },
-    ];
-  if (s.tier === 2)
-    return [
-      { label: `${Math.min(s.served, TIER3_PAX)}/${TIER3_PAX} passengers served`, done: s.served >= TIER3_PAX },
-      { label: "Customs / Immigration zone", done: a.customs.length > 0 },
-      { label: "At least one Large gate", done: a.gates.some((g) => g.level >= 3) },
-    ];
-  return [];
+  return tierRequirements(s, s.tier + 1);
+}
+
+export function nextTier(s: GameState): Tier | null {
+  return s.tier < 5 ? ((s.tier + 1) as Tier) : null;
 }
 
 /** hover tooltip content for a tile */
@@ -229,7 +266,7 @@ export function tileInfo(s: GameState, idx: number): TileInfo | null {
     case "gate": {
       const g = a.gateByIdx.get(idx);
       title = `${GATE_SIZE[t.level]} Gate ${g ? g.name : ""}`;
-      lines.push("Accepts: " + PLANES.slice(0, t.level).map((p) => p.name).join(", "));
+      lines.push("Accepts: " + PLANES.filter((p) => t.level >= p.gate).map((p) => p.short).join(", "));
       const fid = s.gateFlight[idx];
       const f = fid !== undefined ? s.flights.find((fl) => fl.id === fid) : undefined;
       if (f) lines.push(`Flight ${f.code} (${f.city}) · ${f.state}`);
@@ -246,7 +283,18 @@ export function tileInfo(s: GameState, idx: number): TileInfo | null {
       const next = PLANES.find((p) => len < p.minRunway);
       if (next) lines.push(`${next.name} needs ${next.minRunway} tiles`);
       if (here.length > 1) lines.push("Runways cross here: only one can be in use at a time");
-      else if (run) lines.push(run.vertical ? "Planes use it north to south" : "Planes use it west to east");
+      if (run && run.len >= 8) {
+        const dir = runwayDir(s, run);
+        const way = run.vertical ? (dir > 0 ? "southbound" : "northbound") : dir > 0 ? "eastbound" : "westbound";
+        lines.push(`In use ${way} (into the wind) · crosswind ${crosswind(s, run)} kt`);
+        const shut = PLANES.map((p, c) => (len >= p.minRunway ? runwayBlock(s, a, run, c, true) : null));
+        const firstBlock = shut.find((x) => x);
+        if (shut.every((x, c) => x || len < PLANES[c].minRunway)) issues.push("Closed: " + firstBlock);
+        else if (firstBlock) {
+          const limited = PLANES.filter((p, c) => shut[c]).map((p) => `${p.short} (${crosswindLimit(s, PLANES.indexOf(p))} kt)`);
+          lines.push(`Too windy for: ${limited.join(", ")}`);
+        }
+      }
       if (len < PLANES[0].minRunway) issues.push("Too short: needs 8+ tiles in a straight line");
       break;
     }
@@ -278,6 +326,15 @@ export function tileInfo(s: GameState, idx: number): TileInfo | null {
       const field = fieldTo(s, idx);
       if (!a.checkins.some((c) => isFinite(field[c])))
         issues.push("Not connected to check-in (walkway or shuttle needed)");
+      break;
+    }
+    case "tower": {
+      const feats = ["weather forecast"];
+      if (t.level >= 2) feats.push("ILS fog landings");
+      if (t.level >= 3) feats.push("storm radar");
+      lines.push(`Level ${t.level}: ${feats.join(", ")}`);
+      lines.push(`Forecast: ${TOWER_FORECAST_HOURS[t.level]} hours ahead`);
+      if (t.level < a.tower) lines.push("Only your best tower counts");
       break;
     }
     case "shuttle": {

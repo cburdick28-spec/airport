@@ -3,6 +3,13 @@ import { getAnalysis } from "../src/game/analysis";
 import { MAX_STEP } from "../src/game/constants";
 import { SCENARIOS } from "../src/game/scenarios";
 import { step } from "../src/game/simulation";
+import type { GameState } from "../src/game/types";
+
+/** layouts are tested in mild weather; storms are covered by sim-test and the balance report */
+function mild(s: GameState) {
+  s.calmUntil = Infinity;
+  s.forecast = [{ kind: "clear", start: s.time, end: s.time + 90, windDir: Math.random() * 360, windSpeed: 8 }];
+}
 
 const CH: Record<string, string> = { empty: ".", parking: "P", shuttle: "B", sidewalk: "-", floor: "_", checkin: "C", tsa: "T", customs: "U", gate: "G", runway: "=", taxiway: "+" };
 let failed = false;
@@ -15,6 +22,7 @@ for (const sc of SCENARIOS) {
   if (sc.id === "blank") continue;
   const t0 = Date.now();
   const s = sc.create();
+  mild(s);
   console.log(`\n=== ${sc.name} (${sc.code}) ===`);
   if (process.argv.includes("--map"))
     for (let y = 0; y < s.h; y++) console.log(s.tiles.slice(y * s.w, (y + 1) * s.w).map((t) => (t.type === "gate" ? String(t.level) : CH[t.type])).join(""));
