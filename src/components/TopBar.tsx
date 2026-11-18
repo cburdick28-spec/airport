@@ -32,7 +32,11 @@ export default function TopBar({ s }: { s: GameState }) {
           <span className="text-sm font-bold">{s.name}</span>
         </span>
       </div>
-      <Stat label="Money" value={money(s.money)} tone={s.money < 0 ? "text-rose-400" : "text-emerald-300"} />
+      {s.sandbox ? (
+        <Stat label="Money · Sandbox" value="∞ Unlimited" tone="text-amber-300" />
+      ) : (
+        <Stat label="Money" value={money(s.money)} tone={s.money < 0 ? "text-rose-400" : "text-emerald-300"} />
+      )}
       <Stat label={`Tier ${s.tier}`} value={TIER_NAMES[s.tier]} tone="text-sky-300" />
       <Stat label="Passengers served" value={s.served.toLocaleString("en-US")} />
       <Stat label="Satisfaction" value={`${sat}%`} tone={satTone} />

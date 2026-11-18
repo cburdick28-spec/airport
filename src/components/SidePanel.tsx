@@ -326,16 +326,20 @@ export default function SidePanel({ s }: { s: GameState }) {
           <dd className="text-right tabular-nums">
             {parkingUsed(s)}/{a.parkingSpots}
           </dd>
-          <dt className="text-slate-400">Loan</dt>
-          <dd className="text-right tabular-nums">
-            {money(s.loan)} / {money(maxLoan(s))}
-          </dd>
-          <dt className="text-slate-400">Interest</dt>
-          <dd className="text-right tabular-nums">
-            {money(s.loan * LOAN_RATE + (s.money < 0 ? -s.money * OVERDRAFT_RATE : 0))}/day
-          </dd>
-          <dt className="text-slate-400">Bankrupt below</dt>
-          <dd className="text-right tabular-nums text-rose-300">{money(bankruptAt(s))}</dd>
+          {!s.sandbox && (
+            <>
+              <dt className="text-slate-400">Loan</dt>
+              <dd className="text-right tabular-nums">
+                {money(s.loan)} / {money(maxLoan(s))}
+              </dd>
+              <dt className="text-slate-400">Interest</dt>
+              <dd className="text-right tabular-nums">
+                {money(s.loan * LOAN_RATE + (s.money < 0 ? -s.money * OVERDRAFT_RATE : 0))}/day
+              </dd>
+              <dt className="text-slate-400">Bankrupt below</dt>
+              <dd className="text-right tabular-nums text-rose-300">{money(bankruptAt(s))}</dd>
+            </>
+          )}
           <dt className="text-slate-400">Fees</dt>
           <dd className="text-right">{FEES[s.fees].name}</dd>
           <dt className="text-slate-400">Demand now</dt>

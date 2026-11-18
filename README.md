@@ -50,6 +50,8 @@ Hover any tile to see why it isn't working ("Needs TSA connection", "No runway a
 
 **Snow crews:** hire as many as you like; each one keeps another runway clear in snow.
 
+**Sandbox mode:** tick "Sandbox mode" in the Airports menu and play any airport with unlimited money, every tier and plot unlocked, instant building and no bankruptcy or fines. Weather still happens.
+
 **Money:** big buildings cost a lot to run, demand peaks in the morning and evening rush, and late flights drive travellers away. Take bank loans (5% a day) in the Staff tab, set fees Low / Normal / High (revenue vs demand), and watch the bankruptcy line in the side panel. Go too far into the red and the bank takes the airport.
 
 **Airline contracts:** airlines offer deals in the side panel (for example "6 regional flights in 8h"). Signed contracts send guaranteed flights and pay a bonus when finished. Leaving passengers behind costs a fine, and missing the deadline costs a penalty.

@@ -43,6 +43,7 @@ interface SaveData {
   scenarioId?: string;
   /** 1000 once prices moved to real dollars; missing in older saves */
   moneyScale?: number;
+  sandbox?: boolean;
   owned?: string;
   landPermits?: number;
   projects?: Project[];
@@ -85,6 +86,7 @@ export function serialize(s: GameState): string {
     diversions: s.diversions,
     scenarioId: s.scenarioId,
     moneyScale: 1000,
+    sandbox: s.sandbox,
     owned: s.owned.map((o) => (o ? "1" : "0")).join(""),
     landPermits: s.landPermits,
     projects: s.projects,
@@ -141,6 +143,7 @@ export function deserialize(json: string): GameState | null {
     s.projects = (d.projects ?? []).map((p) => ({ ...p, style: p.style ?? "classic", custom: p.custom ?? "" }));
     s.terminals = d.terminals ?? [];
     s.baseStyle = d.baseStyle ?? "classic";
+    s.sandbox = !!d.sandbox;
     const projectOf = new Map<number, number>();
     for (const pr of s.projects) for (const i of pr.tiles) projectOf.set(i, pr.id);
     for (const [i, type, level, start, done, cost] of d.sites ?? []) {

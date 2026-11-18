@@ -63,6 +63,7 @@ export function createEmptyState(money = 60_000_000): GameState {
     tiles,
     version: 1,
     money,
+    sandbox: false,
     time: START_TIME,
     tier: 1,
     served: 0,
@@ -150,8 +151,26 @@ function earnFee(s: GameState, amount: number) {
 }
 
 function spend(s: GameState, amount: number) {
-  s.money -= amount;
+  if (!s.sandbox) s.money -= amount;
   s.expenseThisHour += amount;
+}
+
+/** can the airport pay this? (always, in sandbox) */
+export function canAfford(s: GameState, cost: number): boolean {
+  return s.sandbox || s.money >= cost;
+}
+
+/** turn an airport into a sandbox: unlimited money, every tier and plot, instant building */
+export function makeSandbox(s: GameState) {
+  s.sandbox = true;
+  s.tier = 5;
+  s.owned = s.owned.map(() => true);
+  s.landPermits = 0;
+  s.loan = 0;
+  s.bankrupt = false;
+  if (!s.name.endsWith("(Sandbox)")) s.name += " (Sandbox)";
+  finishAllConstruction(s);
+  s.version++;
 }
 
 function recordDeparture(s: GameState, onTime: boolean) {
@@ -240,13 +259,13 @@ export function buildBlocker(s: GameState, idx: number, type: Exclude<TileType, 
   if (!isOwned(s, idx)) return "You don't own this land yet (claim it with a land permit)";
   if (t.type === type) return "Already built here";
   if (t.type !== "empty" && !(t.type === "floor" && ON_FLOOR.includes(type))) return "Tile is occupied";
-  if (s.money < BUILD[type].cost[0]) return s.money < 0 ? "Overdrawn: take a loan or cut costs" : "Not enough money";
+  if (!canAfford(s, BUILD[type].cost[0])) return s.money < 0 ? "Overdrawn: take a loan or cut costs" : "Not enough money";
   return null;
 }
 
 function startSite(s: GameState, idx: number, type: Exclude<TileType, "empty">, level: number, cost: number, minutes: number) {
   spend(s, cost);
-  s.tiles[idx].site = { type, level, start: s.time, done: s.time + minutes, cost };
+  s.tiles[idx].site = { type, level, start: s.time, done: s.time + (s.sandbox ? 0 : minutes), cost };
   s.sites.push(idx);
   s.version++;
 }
@@ -257,6 +276,7 @@ export function build(s: GameState, idx: number, type: Exclude<TileType, "empty"
   if (why) return { ok: false, msg: why };
   const def = BUILD[type];
   startSite(s, idx, type, 1, def.cost[0], def.time[0]);
+  if (s.sandbox) return { ok: true, msg: "" };
   return { ok: true, msg: def.paint ? "" : `${def.name} under construction: ready in ${duration(def.time[0])}` };
 }
 
@@ -297,10 +317,10 @@ export function upgrade(s: GameState, idx: number): ActionResult {
   if (def.maxLevel === 1) return { ok: false, msg: `${def.name} can't be upgraded` };
   if (t.level >= def.maxLevel) return { ok: false, msg: "Already max level" };
   const cost = def.cost[t.level];
-  if (s.money < cost) return { ok: false, msg: `Need ${money(cost)}` };
+  if (!canAfford(s, cost)) return { ok: false, msg: `Need ${money(cost)}` };
   const label = t.type === "gate" ? `${GATE_SIZE[t.level + 1]} Gate` : `${def.name} L${t.level + 1}`;
   startSite(s, idx, t.type, t.level + 1, cost, def.time[t.level]);
-  return { ok: true, msg: `Upgrading to ${label}: ready in ${duration(def.time[t.level])}` };
+  return { ok: true, msg: s.sandbox ? `Upgraded to ${label}` : `Upgrading to ${label}: ready in ${duration(def.time[t.level])}` };
 }
 
 export function siteName(site: { type: Exclude<TileType, "empty">; level: number }): string {
@@ -367,7 +387,7 @@ export function projectBlocker(s: GameState, templateId: string, rot: number, cx
     if (here.site) return "A construction site is in the way";
     if (here.type !== "empty" && !(here.type === f.type && MERGEABLE.includes(f.type))) return "Something is in the way";
   }
-  if (s.money < t.cost) return s.money < 0 ? "Overdrawn: take a loan or cut costs" : `Needs ${money(t.cost)}`;
+  if (!canAfford(s, t.cost)) return s.money < 0 ? "Overdrawn: take a loan or cut costs" : `Needs ${money(t.cost)}`;
   return null;
 }
 
@@ -394,7 +414,7 @@ export function placeProject(
   spend(s, t.cost);
   const id = s.nextId++;
   const tiles: number[] = [];
-  const done = s.time + t.time;
+  const done = s.time + (s.sandbox ? 0 : t.time);
   for (const f of footprint(t, rot, cx, cy)) {
     const idx = f.y * s.w + f.x;
     if (s.tiles[idx].type === f.type) continue; // already there (apron, walkway, parking)
@@ -484,9 +504,8 @@ export function finishAllConstruction(s: GameState) {
 
 export function hireDriver(s: GameState): ActionResult {
   if (s.drivers >= 6) return { ok: false, msg: "Max 6 buses" };
-  if (s.money < DRIVER_HIRE_COST) return { ok: false, msg: "Not enough money" };
-  s.money -= DRIVER_HIRE_COST;
-  s.expenseThisHour += DRIVER_HIRE_COST;
+  if (!canAfford(s, DRIVER_HIRE_COST)) return { ok: false, msg: "Not enough money" };
+  spend(s, DRIVER_HIRE_COST);
   s.drivers++;
   s.version++;
   return { ok: true, msg: "Shuttle driver hired" };
@@ -500,7 +519,7 @@ export function fireDriver(s: GameState): ActionResult {
 }
 
 export function hireSnowCrew(s: GameState): ActionResult {
-  if (s.money < SNOW_CREW_HIRE) return { ok: false, msg: "Not enough money" };
+  if (!canAfford(s, SNOW_CREW_HIRE)) return { ok: false, msg: "Not enough money" };
   spend(s, SNOW_CREW_HIRE);
   s.snowCrews++;
   return { ok: true, msg: `Snow crew hired: ${s.snowCrews} runway${s.snowCrews === 1 ? "" : "s"} kept clear in snow` };
@@ -527,6 +546,7 @@ export function bankruptAt(s: GameState): number {
 }
 
 export function takeLoan(s: GameState): ActionResult {
+  if (s.sandbox) return { ok: false, msg: "Sandbox: money is unlimited" };
   if (s.loan + LOAN_STEP > maxLoan(s))
     return { ok: false, msg: `The bank's limit is ${money(maxLoan(s))} for an airport this size` };
   s.loan += LOAN_STEP;
@@ -552,9 +572,8 @@ export function setFees(s: GameState, level: number): ActionResult {
 
 export function runMarketing(s: GameState): ActionResult {
   if (s.time < s.marketingUntil) return { ok: false, msg: "Campaign already running" };
-  if (s.money < MARKETING_COST) return { ok: false, msg: "Not enough money" };
-  s.money -= MARKETING_COST;
-  s.expenseThisHour += MARKETING_COST;
+  if (!canAfford(s, MARKETING_COST)) return { ok: false, msg: "Not enough money" };
+  spend(s, MARKETING_COST);
   s.marketingUntil = s.time + MARKETING_HOURS * 60;
   return { ok: true, msg: "Marketing campaign launched: +35% demand for 12h" };
 }
@@ -1393,10 +1412,12 @@ function checkTier(s: GameState) {
 
 function hourTick(s: GameState) {
   spend(s, hourlyUpkeep(s));
-  const interest = (s.loan * LOAN_RATE) / 24 + (s.money < 0 ? (-s.money * OVERDRAFT_RATE) / 24 : 0);
+  const interest = s.sandbox ? 0 : (s.loan * LOAN_RATE) / 24 + (s.money < 0 ? (-s.money * OVERDRAFT_RATE) / 24 : 0);
   if (interest > 0) spend(s, interest);
   const limit = bankruptAt(s);
-  if (s.money < limit) {
+  if (s.sandbox) {
+    // nothing can go wrong with the money in sandbox
+  } else if (s.money < limit) {
     s.bankrupt = true;
     addEvent(s, "Bankrupt! The bank has taken over the airport.", "bad");
   } else if (s.money < 0) {

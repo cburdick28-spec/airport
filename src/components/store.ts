@@ -7,6 +7,7 @@ import {
   build,
   claimPlot,
   demolish,
+  makeSandbox,
   placeProject,
   renameTerminal,
   setBaseStyle,
@@ -78,11 +79,12 @@ export const store = {
     store.bump();
   },
   /** wipe the current game and load one of the pre-built airports */
-  newGame(id: string) {
+  newGame(id: string, sandbox = false) {
     const sc = SCENARIOS.find((x) => x.id === id);
     if (!sc) return;
     clearSave();
     store.state = sc.create();
+    if (sandbox) makeSandbox(store.state);
     store.lastEventId = store.state.nextId;
     store.tool = null;
     store.hover = -1;

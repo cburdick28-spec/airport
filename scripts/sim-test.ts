@@ -9,6 +9,7 @@ import {
   createEmptyState,
   demolish,
   hireSnowCrew,
+  makeSandbox,
   placeProject,
   projectBlocker,
   renameTerminal,
@@ -316,3 +317,27 @@ let hired = 0;
 for (let i = 0; i < 12; i++) if (hireSnowCrew(crews).ok) hired++;
 assert(hired === 12 && crews.snowCrews === 12, "12 snow crews on payroll (no cap)");
 console.log("ALL GOOD (land)");
+
+// ---------------------------------------------------------------------------
+// sandbox mode
+// ---------------------------------------------------------------------------
+const sb = createTutorialAirport();
+makeSandbox(sb);
+const sbCash = sb.money;
+assert(sb.sandbox && sb.tier === 5 && sb.owned.every(Boolean), "sandbox: top tier and all land");
+let sbTile = -1;
+for (let i = 0; i < sb.tiles.length && sbTile < 0; i++) if (sb.tiles[i].type === "empty") sbTile = i;
+assert(build(sb, sbTile, "gate").ok && sb.money === sbCash, "sandbox: building costs nothing");
+run(sb, 1);
+assert(sb.tiles[sbTile].type === "gate", "sandbox: construction is instant");
+assert(placeProject(sb, "mega", 0, 10, 10).ok || placeProject(sb, "mega", 1, 80, 50).ok, "sandbox: Mega Terminal anywhere free");
+run(sb, 2);
+assert(sb.projects.length === 0 && sb.terminals.length === 1, "sandbox: terminal opens right away");
+sb.money = -1e12;
+run(sb, 125);
+assert(!sb.bankrupt, "sandbox: can't go bankrupt");
+assert(!takeLoan(sb).ok, "sandbox: no loans needed");
+assert(sb.forecast.length > 0, "sandbox: weather still runs");
+const sbLoad = deserialize(serialize(sb));
+assert(sbLoad && sbLoad.sandbox, "sandbox survives save/load");
+console.log("ALL GOOD (sandbox)");

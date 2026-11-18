@@ -14,7 +14,7 @@ import {
   SNOW_CREW_WAGE,
   type Category,
 } from "@/game/constants";
-import { MAX_NAME, maxLoan } from "@/game/simulation";
+import { canAfford, MAX_NAME, maxLoan } from "@/game/simulation";
 import { STYLE_IDS, STYLES, TERMINALS, templateCounts } from "@/game/projects";
 import type { GameState, TileType } from "@/game/types";
 import { duration, money } from "./format";
@@ -161,9 +161,9 @@ export default function BuildMenu({ s }: { s: GameState }) {
                   active={tool?.kind === "project" && tool.id === t.id}
                   swatch={locked ? "bg-slate-600" : "bg-rose-500"}
                   title={t.name}
-                  sub={locked ? `Needs Tier ${t.tier}` : `${money(t.cost)} · ${duration(t.time)}`}
+                  sub={locked ? `Needs Tier ${t.tier}` : s.sandbox ? "Free · opens instantly" : `${money(t.cost)} · ${duration(t.time)}`}
                   hint={`${t.blurb} ${gates} gates, ${n.tsa} security lanes, ${n.desks} check-in desks${n.customs ? `, ${n.customs} customs` : ""}, apron and parking. Opens all at once and earns a land permit. R rotates.`}
-                  disabled={locked || s.money < t.cost}
+                  disabled={locked || !canAfford(s, t.cost)}
                   onClick={() => store.setTool({ kind: "project", id: t.id, rot: tool?.kind === "project" ? tool.rot : 0 })}
                 />
               );
@@ -192,9 +192,9 @@ export default function BuildMenu({ s }: { s: GameState }) {
                 active={tool?.kind === "build" && tool.type === t}
                 swatch={SWATCH[t]}
                 title={t === "gate" ? "Gate (Small)" : def.name}
-                sub={`${money(def.cost[0])} · ${duration(def.time[0])} · ${money(def.upkeep[0])}/hr`}
+                sub={s.sandbox ? "Free · instant" : `${money(def.cost[0])} · ${duration(def.time[0])} · ${money(def.upkeep[0])}/hr`}
                 hint={def.desc}
-                disabled={s.money < def.cost[0]}
+                disabled={!canAfford(s, def.cost[0])}
                 onClick={() => store.setTool({ kind: "build", type: t })}
               />
             );
@@ -246,7 +246,7 @@ export default function BuildMenu({ s }: { s: GameState }) {
               title={`Borrow ${money(LOAN_STEP)}`}
               sub={`${money(s.loan)} of ${money(maxLoan(s))} used`}
               hint={`Bank loan at ${LOAN_RATE * 100}% interest a day, charged hourly. Repay any time.`}
-              disabled={s.loan + LOAN_STEP > maxLoan(s)}
+              disabled={s.sandbox || s.loan + LOAN_STEP > maxLoan(s)}
               onClick={() => store.staff("loan")}
             />
             <Item

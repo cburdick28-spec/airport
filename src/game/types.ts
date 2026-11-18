@@ -231,6 +231,8 @@ export interface GameState {
   /** bumped whenever the layout (or anything pathing depends on) changes */
   version: number;
   money: number;
+  /** sandbox: unlimited money, all land and tiers, instant building, no bankruptcy (weather stays) */
+  sandbox: boolean;
   /** game minutes since day 1, 00:00 */
   time: number;
   tier: 1 | 2 | 3 | 4 | 5;
