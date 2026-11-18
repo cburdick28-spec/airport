@@ -42,12 +42,15 @@ for (const sc of SCENARIOS) {
     }
     maxPax = Math.max(maxPax, s.passengers.length);
   }
-  cancelled = s.events.filter((e) => e.text.includes("cancelled")).length;
+  // weather diversions are expected; anything else means the layout is broken
+  const layoutCancels = s.events.filter((e) => e.text.includes("cancelled") && !e.text.includes("diverted"));
+  cancelled = layoutCancels.length;
+  if (cancelled) console.log("  cancelled:", layoutCancels.map((e) => e.text).join(" | "));
   console.log(
     `  24h: flights=${s.flightsHandled} served=+${s.served - startServed} sat=${s.satisfaction.toFixed(0)} missed=${s.missedFlights} money ${Math.round(startMoney)} -> ${Math.round(s.money)} maxPax=${maxPax} runwaysUsed=${used.size}/${a.runways.length} (${Date.now() - t0}ms)`,
   );
   check(s.flightsHandled >= 20, "flights keep coming");
-  check(cancelled === 0, "no cancelled flights");
+  check(cancelled === 0, "no flights cancelled by the layout");
   check(used.size >= Math.min(2, a.runways.length), "more than one runway gets used");
   check(a.runways.every((r) => r.len >= 8), "no stray runway stubs: " + a.runways.map((r) => (r.vertical ? "V" : "H") + r.len).join(" "));
   check(s.money > startMoney, "airport makes money");
