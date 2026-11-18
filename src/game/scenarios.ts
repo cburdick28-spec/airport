@@ -84,7 +84,7 @@ function taxi(s: GameState, x0: number, y0: number, x1: number, y1: number) {
 // (about 125 m per tile, map rotated 32 degrees)
 // ---------------------------------------------------------------------------
 function laguardia(): GameState {
-  const s = createEmptyState(60000);
+  const s = createEmptyState(60_000_000);
   rect(s, 26, 8, 26, 24, "runway"); // 4/22
   rect(s, 23, 12, 39, 12, "runway"); // 13/31
 
@@ -149,7 +149,7 @@ function laguardia(): GameState {
 // (about 90 m per tile, map rotated 31 degrees)
 // ---------------------------------------------------------------------------
 function jfk(): GameState {
-  const s = createEmptyState(100000);
+  const s = createEmptyState(100_000_000);
   rect(s, 1, 28, 51, 28, "runway"); // 13R/31L
   rect(s, 17, 6, 51, 6, "runway"); // 13L/31R
   rect(s, 43, 3, 43, 41, "runway"); // 4L/22R
@@ -264,7 +264,7 @@ function jfk(): GameState {
 // (about 80 m per tile, map rotated 7 degrees)
 // ---------------------------------------------------------------------------
 function lax(): GameState {
-  const s = createEmptyState(120000);
+  const s = createEmptyState(120_000_000);
   rect(s, 6, 10, 40, 10, "runway"); // 6L/24R
   rect(s, 2, 13, 43, 13, "runway"); // 6R/24L
   rect(s, 15, 30, 63, 30, "runway"); // 7L/25R
@@ -343,7 +343,7 @@ function lax(): GameState {
 // (about 80 m per tile, no rotation needed)
 // ---------------------------------------------------------------------------
 function atlanta(): GameState {
-  const s = createEmptyState(110000);
+  const s = createEmptyState(110_000_000);
   rect(s, 13, 1, 47, 1, "runway"); // 8L/26R
   rect(s, 13, 5, 51, 5, "runway"); // 8R/26L
   rect(s, 2, 22, 47, 22, "runway"); // 9L/27R
@@ -420,7 +420,7 @@ export const SCENARIOS: Scenario[] = [
     code: "START",
     tagline: "Learn the ropes",
     blurb: "A tiny working regional airfield. Grow it from two small gates into an international airport.",
-    facts: "Tier 1 · 2 gates · 1 runway · $30k · calm first day",
+    facts: "Tier 1 · 2 gates · 1 runway · $30M · calm first day",
     create: createTutorialAirport,
   },
   {
@@ -429,7 +429,7 @@ export const SCENARIOS: Scenario[] = [
     code: "LGA",
     tagline: "Tight and domestic",
     blurb: "Two short crossing runways, Terminals B and C in the corner and the little Marine Air Terminal across the field.",
-    facts: "Tier 2 · 7 gates · 2 crossing runways · $60k · snow and storms",
+    facts: "Tier 2 · 7 gates · 2 crossing runways · $60M · snow and storms",
     create: laguardia,
   },
   {
@@ -438,7 +438,7 @@ export const SCENARIOS: Scenario[] = [
     code: "JFK",
     tagline: "The international gateway",
     blurb: "Four runways in a pinwheel around Terminals 1, 4, 5, 7 and 8, each with its own security. 4L/22R crosses both 13s.",
-    facts: "Tier 3 · 19 gates · 4 runways · $100k · snow and storms",
+    facts: "Tier 3 · 19 gates · 4 runways · $100M · snow and storms",
     create: jfk,
   },
   {
@@ -447,7 +447,7 @@ export const SCENARIOS: Scenario[] = [
     code: "LAX",
     tagline: "Four runways, one horseshoe",
     blurb: "Tom Bradley International across the west end, Terminals 1-3 as north piers and 4-7 as south piers, between two runway pairs.",
-    facts: "Tier 3 · 28 gates · 4 runways · $120k · coastal fog",
+    facts: "Tier 3 · 28 gates · 4 runways · $120M · coastal fog",
     create: lax,
   },
   {
@@ -456,7 +456,7 @@ export const SCENARIOS: Scenario[] = [
     code: "ATL",
     tagline: "The busiest bottleneck",
     blurb: "Five parallel runways and seven concourses on one spine, with a terminal at each end. Security is the choke point.",
-    facts: "Tier 3 · 30 gates · 5 runways · $110k · thunderstorms",
+    facts: "Tier 3 · 30 gates · 5 runways · $110M · thunderstorms",
     create: atlanta,
   },
   {
@@ -464,8 +464,8 @@ export const SCENARIOS: Scenario[] = [
     name: "Blank Field",
     code: "NEW",
     tagline: "Start from nothing",
-    blurb: "Empty land and $60,000. Design your own airport from the first parking lot.",
-    facts: "Tier 1 · empty · $60k · calm first day",
+    blurb: "Empty land and $60 million. Design your own airport from the first parking lot.",
+    facts: "Tier 1 · empty · $60M · calm first day",
     create: createBlankAirport,
   },
 ];

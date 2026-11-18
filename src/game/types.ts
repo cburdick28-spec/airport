@@ -18,6 +18,18 @@ export interface Tile {
   type: TileType;
   /** 1..4. For gates: 1 = Small, 2 = Medium, 3 = Large, 4 = Jumbo. */
   level: number;
+  /** construction in progress on this tile (a new building, or an upgrade of the one here) */
+  site?: Construction;
+}
+
+export interface Construction {
+  type: Exclude<TileType, "empty">;
+  /** level it will have when finished */
+  level: number;
+  start: number;
+  done: number;
+  /** what was paid, for refunds */
+  cost: number;
 }
 
 /** 0 regional, 1 narrow-body, 2 wide-body, 3 super jumbo, 4 supersonic */
@@ -211,6 +223,8 @@ export interface GameState {
   contracts: Contract[];
   nextOffer: number;
   contractsCompleted: number;
+  /** tiles with construction in progress */
+  sites: number[];
   // ---- weather ----
   climate: Climate;
   /** current spell first, then the coming ones */

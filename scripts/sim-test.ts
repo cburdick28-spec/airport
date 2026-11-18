@@ -1,11 +1,13 @@
 // Headless tests of the simulation engine: npm run test:sim
 import { getAnalysis, tierProgress } from "../src/game/analysis";
-import { MAX_STEP } from "../src/game/constants";
+import { BUILD, LOAN_STEP, MAX_STEP } from "../src/game/constants";
 import { deserialize, serialize } from "../src/game/save";
 import { SCENARIOS } from "../src/game/scenarios";
 import {
   build,
   createEmptyState,
+  demolish,
+  finishAllConstruction,
   hourlyUpkeep,
   repayLoan,
   resetWeather,
@@ -61,7 +63,7 @@ console.log(`  24h: money ${Math.round(s.money)} served ${s.served} sat ${s.sati
 assert(s.flightsHandled >= 15, "flights handled in 24h: " + s.flightsHandled);
 assert(s.satisfaction >= 75, "satisfaction stays healthy: " + s.satisfaction.toFixed(1));
 assert(s.otp >= 80, "on-time rate in calm weather: " + s.otp.toFixed(0));
-assert(s.money > 35000, "tutorial airport is profitable in calm weather: " + Math.round(s.money));
+assert(s.money > 35_000_000, "tutorial airport is profitable in calm weather: " + Math.round(s.money));
 assert(s.passengers.every((p) => isFinite(p.x) && isFinite(p.y)), "no NaN positions");
 
 // ---------------------------------------------------------------------------
@@ -100,16 +102,33 @@ assert(s.flightsHandled > fl0 + 2, "traffic recovers after the storm");
 // ---------------------------------------------------------------------------
 // control tower: ILS for fog, radar for storms
 // ---------------------------------------------------------------------------
-s.money = 500000;
+s.money = 500_000_000;
 let towerAt = -1;
 for (let i = 0; i < s.tiles.length && towerAt < 0; i++) if (s.tiles[i].type === "empty") towerAt = i;
-assert(build(s, towerAt, "tower").ok, "control tower built");
+assert(build(s, towerAt, "tower").ok && s.tiles[towerAt].type === "empty" && s.tiles[towerAt].site, "control tower construction starts");
+assert(getAnalysis(s).tower === 0, "an unfinished tower does nothing yet");
+run(s, BUILD.tower.time[0] + 2);
+assert(s.tiles[towerAt].type === "tower" && !s.tiles[towerAt].site && getAnalysis(s).tower === 1, "tower opens when construction finishes");
+assert(s.events.some((e) => e.text.includes("Control Tower is open")), "construction finished event");
 setWeather(s, "fog", 90, 2);
 assert(runwayBlock(s, getAnalysis(s), run0, 0, true)?.startsWith("Fog"), "fog blocks landings with a level 1 tower");
 assert(runwayBlock(s, getAnalysis(s), run0, 0, false) === null, "fog still allows takeoffs");
-assert(upgrade(s, towerAt).ok && runwayBlock(s, getAnalysis(s), run0, 0, true) === null, "ILS (tower L2) allows fog landings");
+assert(upgrade(s, towerAt).ok && s.tiles[towerAt].level === 1, "tower upgrade starts, old level keeps working");
+assert(!upgrade(s, towerAt).ok, "can't stack two upgrades");
+finishAllConstruction(s);
+assert(runwayBlock(s, getAnalysis(s), run0, 0, true) === null, "ILS (tower L2) allows fog landings");
 setWeather(s, "storm", 90, 12);
-assert(upgrade(s, towerAt).ok && runwayBlock(s, getAnalysis(s), run0, 0, true) === null, "storm radar (tower L3) keeps the runway open");
+assert(upgrade(s, towerAt).ok, "radar upgrade ordered");
+finishAllConstruction(s);
+assert(runwayBlock(s, getAnalysis(s), run0, 0, true) === null, "storm radar (tower L3) keeps the runway open");
+
+// cancelling construction refunds most of the money
+const cash = s.money;
+let lot = -1;
+for (let i = s.tiles.length - 1; i >= 0 && lot < 0; i--) if (s.tiles[i].type === "empty" && !s.tiles[i].site) lot = i;
+assert(build(s, lot, "gate").ok && s.money === cash - BUILD.gate.cost[0], "gate paid for up front");
+assert(!build(s, lot, "gate").ok, "can't build on a construction site");
+assert(demolish(s, lot).ok && !s.tiles[lot].site && s.money === cash - BUILD.gate.cost[0] * 0.25, "cancel refunds 75%");
 calm(s);
 
 // ---------------------------------------------------------------------------
@@ -132,12 +151,12 @@ assert(lgaWind.some((r) => r.run.vertical && r.status === "open") && lgaWind.som
 const m = createTutorialAirport();
 calm(m);
 const before = m.money;
-assert(takeLoan(m).ok && m.loan === 25000 && m.money === before + 25000, "loan taken");
+assert(takeLoan(m).ok && m.loan === LOAN_STEP && m.money === before + LOAN_STEP, "loan taken");
 let guard = 0;
 while (takeLoan(m).ok && guard++ < 50);
-assert(m.loan <= 30000 + 16 * hourlyUpkeep(m) + 25000, "loans are capped by airport size");
+assert(m.loan <= 30_000_000 + 16 * hourlyUpkeep(m) + LOAN_STEP, "loans are capped by airport size");
 assert(repayLoan(m).ok, "loan repaid in part");
-m.money = -1e6;
+m.money = -1e9;
 run(m, 61);
 assert(m.bankrupt, "a deep overdraft bankrupts the airport");
 const t0 = m.time;
@@ -155,11 +174,15 @@ assert(signContract(c, offer.id).ok, `contract signed: ${offer.flights} flights 
 run(c, offer.hours * 60 + 5);
 assert(c.contracts.every((k) => k.id !== offer.id), "contract resolved by its deadline");
 
-c.money = 500000;
+c.money = 500_000_000;
 c.served = 600;
 c.satisfaction = 95;
-assert(upgrade(c, getAnalysis(c).gates[0].idx).ok, "gate upgrades to Medium");
+assert(upgrade(c, getAnalysis(c).gates[0].idx).ok, "gate upgrade to Medium ordered");
 run(c, 10);
+assert(c.tier === 1, "no promotion while the Medium gate is still being built");
+run(c, BUILD.gate.time[1]);
+c.satisfaction = 95;
+run(c, 5);
 assert(c.tier === 2, "tier 2 reached");
 assert(tierProgress(c).some((r) => r.label.includes("Customs")), "tier 3 checklist shown");
 
@@ -170,8 +193,12 @@ jfk.satisfaction = 95;
 run(jfk, 10);
 assert(jfk.tier === 4, "JFK with a radar tower and lots of passengers reaches Tier 4");
 const big = getAnalysis(jfk).gates.find((g) => g.level === 3)!;
-jfk.money = 1e6;
-assert(upgrade(jfk, big.idx).ok && getAnalysis(jfk).gates.find((g) => g.idx === big.idx)!.classes.includes(3), "Jumbo gate takes Super Jumbos");
+jfk.money = 1e9;
+assert(upgrade(jfk, big.idx).ok, "Jumbo gate ordered");
+const saved = deserialize(serialize(jfk));
+assert(saved && saved.sites.length === 1 && saved.tiles[big.idx].site?.level === 4, "construction survives save/load");
+finishAllConstruction(jfk);
+assert(getAnalysis(jfk).gates.find((g) => g.idx === big.idx)!.classes.includes(3), "Jumbo gate takes Super Jumbos");
 jfk.served = 120000;
 jfk.otp = 95;
 run(jfk, 10);

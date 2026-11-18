@@ -1,7 +1,7 @@
 // Canvas renderer. Everything is drawn with shapes, so the game ships zero image assets.
 
 import { getAnalysis } from "@/game/analysis";
-import { PLANES } from "@/game/constants";
+import { BUILD, PLANES } from "@/game/constants";
 import { runHeadingDir, runProgress, runStart, runwayMarks, type RunwayMarks } from "@/game/runways";
 import { currentWeather, runwayStates, type RunwayState } from "@/game/weather";
 import { buildBlocker } from "@/game/simulation";
@@ -272,6 +272,46 @@ function drawPlane(ctx: CanvasRenderingContext2D, f: Flight, T: number) {
   ctx.restore();
 }
 
+/** construction: dirt and hazard stripes, with a progress bar on buildings */
+function drawSites(ctx: CanvasRenderingContext2D, s: GameState, T: number) {
+  for (const idx of s.sites) {
+    const t = s.tiles[idx];
+    const site = t.site;
+    if (!site) continue;
+    const px = (idx % s.w) * T;
+    const py = Math.floor(idx / s.w) * T;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(px, py, T, T);
+    ctx.clip();
+    if (t.type === "empty") {
+      ctx.fillStyle = "#c8ab7d";
+      ctx.fillRect(px, py, T, T);
+    }
+    ctx.strokeStyle = "rgba(245,158,11,0.85)";
+    ctx.lineWidth = Math.max(1, T * 0.12);
+    ctx.beginPath();
+    for (let k = -T; k < T * 2; k += T * 0.4) {
+      ctx.moveTo(px + k, py + T);
+      ctx.lineTo(px + k + T, py);
+    }
+    if (t.type === "empty") ctx.stroke();
+    ctx.restore();
+    ctx.strokeStyle = "#f59e0b";
+    ctx.lineWidth = Math.max(1, T * 0.1);
+    ctx.setLineDash([T * 0.2, T * 0.15]);
+    ctx.strokeRect(px + 1, py + 1, T - 2, T - 2);
+    ctx.setLineDash([]);
+    if (!BUILD[site.type].paint) {
+      const pct = Math.min(1, Math.max(0, (s.time - site.start) / Math.max(1, site.done - site.start)));
+      ctx.fillStyle = "rgba(15,23,42,0.8)";
+      ctx.fillRect(px + T * 0.1, py + T * 0.78, T * 0.8, T * 0.14);
+      ctx.fillStyle = "#facc15";
+      ctx.fillRect(px + T * 0.1, py + T * 0.78, T * 0.8 * pct, T * 0.14);
+    }
+  }
+}
+
 /** red wash on closed runways, amber on limited ones, green arrows showing the landing direction */
 function drawRunwayStatus(ctx: CanvasRenderingContext2D, s: GameState, T: number, states: RunwayState[]) {
   for (const st of states) {
@@ -383,6 +423,7 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, view: View) 
   ctx.stroke();
 
   drawTiles(ctx, s, T, runwayMarks(s, a.runways));
+  drawSites(ctx, s, T);
   drawRunwayStatus(ctx, s, T, runwayStates(s, a));
 
   // shuttle route

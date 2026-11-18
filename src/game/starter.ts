@@ -15,7 +15,7 @@ function rect(s: GameState, x0: number, y0: number, x1: number, y1: number, type
 }
 
 export function createTutorialAirport(): GameState {
-  const s = createEmptyState(30000);
+  const s = createEmptyState(30_000_000);
 
   // Airside: a 16-tile runway with a taxiway loop (exit at the far end, entry near the start)
   rect(s, 8, 3, 23, 3, "runway");
@@ -62,7 +62,7 @@ export function createTutorialAirport(): GameState {
 }
 
 export function createBlankAirport(): GameState {
-  const s = createEmptyState(60000);
+  const s = createEmptyState(60_000_000);
   s.name = "Blank Field";
   s.scenarioId = "blank";
   s.calmUntil = s.time + 24 * 60;

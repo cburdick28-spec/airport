@@ -6,7 +6,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { getAnalysis } from "@/game/analysis";
-import { PLANES } from "@/game/constants";
+import { BUILD, PLANES } from "@/game/constants";
 import { runHeadingDir, runIdx, runProgress, runStart, runwayMarks } from "@/game/runways";
 import { buildBlocker } from "@/game/simulation";
 import type { Analysis, Flight, GameState, TileType, WeatherKind } from "@/game/types";
@@ -314,6 +314,10 @@ export class Scene3D {
     this.mat("towerbody", "#e2e8f0", { roughness: 0.7 });
     this.mat("towerglass", "#7dd3fc", { roughness: 0.1, metalness: 0.2, emissive: "#38bdf8", emissiveIntensity: 0.2 });
     this.mat("sock", "#f97316", { roughness: 0.6 });
+    this.mat("dirt", "#a8875a", { roughness: 1 });
+    this.mat("hazard", "#f59e0b", { roughness: 0.6 });
+    this.mat("crane", "#facc15", { roughness: 0.5, metalness: 0.3 });
+    this.mat("concrete", "#cbd5e1", { roughness: 0.9 });
     this.mat("bridge", "#e5e7eb", { roughness: 0.5 });
     this.mat("shuttle", "#f2b705", { roughness: 0.5 });
     this.mat("trunk", "#7a5a3a");
@@ -412,7 +416,7 @@ export class Scene3D {
 
         if (t.type === "empty") {
           // sprinkle trees on untouched land, but keep them away from aircraft
-          if (r() < 0.065) {
+          if (!t.site && r() < 0.065) {
             let clear = true;
             for (let dz = -2; dz <= 2 && clear; dz++)
               for (let dx = -2; dx <= 2; dx++) {
@@ -562,6 +566,41 @@ export class Scene3D {
         }
       }
     }
+    // construction sites: dirt, scaffolding and cranes
+    for (const idx of s.sites) {
+      const t = s.tiles[idx];
+      const site = t.site;
+      if (!site) continue;
+      const x = idx % w;
+      const z = Math.floor(idx / w);
+      if (t.type === "empty") box("dirt", x, 0.03, z, 0.98, 0.06, 0.98);
+      if (BUILD[site.type].paint) {
+        b.add("cone", this.cone, "hazard", M.hazard, x, 0.14, z, 0.14, 0.24, 0.14);
+        continue;
+      }
+      const hgt = site.type === "tower" ? 2.6 : site.type === "gate" ? 1.3 : 1.0;
+      for (const [dx, dz] of [
+        [-0.42, -0.42],
+        [0.42, -0.42],
+        [-0.42, 0.42],
+        [0.42, 0.42],
+      ])
+        box("hazard", x + dx, hgt / 2, z + dz, 0.05, hgt, 0.05);
+      box("hazard", x, hgt, z - 0.42, 0.9, 0.04, 0.04);
+      box("hazard", x, hgt, z + 0.42, 0.9, 0.04, 0.04);
+      box("hazard", x - 0.42, hgt, z, 0.04, 0.04, 0.9);
+      box("hazard", x + 0.42, hgt, z, 0.04, 0.04, 0.9);
+      box("hazard", x, hgt * 0.5, z - 0.42, 0.9, 0.03, 0.03, 0, false);
+      if (t.type === "empty") box("concrete", x, 0.2, z, 0.66, 0.34, 0.66);
+      if (site.type === "gate" || site.type === "tower" || site.type === "customs" || site.type === "tsa") {
+        const mh = hgt + 1.5;
+        box("crane", x + 0.3, mh / 2, z + 0.3, 0.08, mh, 0.08);
+        box("crane", x - 0.15, mh, z + 0.3, 1.4, 0.07, 0.07);
+        box("dark", x + 0.42, mh - 0.06, z + 0.3, 0.22, 0.14, 0.14);
+        box("rail", x - 0.62, mh - 0.4, z + 0.3, 0.012, 0.8, 0.012, 0, false);
+      }
+    }
+
     b.build(this.staticGroup);
 
     // terminal name signs

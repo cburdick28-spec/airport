@@ -2,11 +2,11 @@
 
 import { getAnalysis, TIER_UNLOCKS, tierProgress } from "@/game/analysis";
 import { FEES, GATE_SIZE, LOAN_RATE, MAX_CONTRACTS, OVERDRAFT_RATE, PLANES, TIER_NAMES, TOWER_FORECAST_HOURS } from "@/game/constants";
-import { bankruptAt, demandParts, hourlyUpkeep, maxLoan, parkingUsed } from "@/game/simulation";
+import { bankruptAt, demandParts, hourlyUpkeep, maxLoan, parkingUsed, siteName } from "@/game/simulation";
 import type { Flight, GameState } from "@/game/types";
 import { compass, currentWeather, runwayStates, WEATHER } from "@/game/weather";
 import { WindArrow } from "./WeatherBadge";
-import { clock, money } from "./format";
+import { clock, duration, money } from "./format";
 import { store } from "./store";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -49,6 +49,19 @@ export default function SidePanel({ s }: { s: GameState }) {
   const circling = s.flights.filter((f) => f.state === "scheduled" && f.holding > 0).length;
   const holdingShort = s.flights.filter((f) => f.state === "taxiOut" && f.holdReason).length;
   const hhmm = (t: number) => clock(t).split(" · ")[1];
+  // construction grouped into projects (tiles painted together finish together)
+  const projects = new Map<string, { name: string; count: number; done: number; start: number; cost: number }>();
+  for (const i of s.sites) {
+    const site = s.tiles[i].site;
+    if (!site) continue;
+    const key = `${site.type}:${site.level}:${Math.round(site.done / 15)}`;
+    const p = projects.get(key);
+    if (p) {
+      p.count++;
+      p.cost += site.cost;
+    } else projects.set(key, { name: siteName(site), count: 1, done: site.done, start: site.start, cost: site.cost });
+  }
+  const jobs = [...projects.values()].sort((p, q) => p.done - q.done);
   const dp = demandParts(s);
 
   return (
@@ -107,6 +120,31 @@ export default function SidePanel({ s }: { s: GameState }) {
           {coming.length === 0 && <li className="text-slate-500">No change expected</li>}
         </ul>
       </Section>
+
+      {jobs.length > 0 && (
+        <Section title={`Construction (${jobs.length})`}>
+          <ul className="space-y-1.5">
+            {jobs.slice(0, 8).map((j, i) => {
+              const pct = Math.min(100, Math.max(0, ((s.time - j.start) / Math.max(1, j.done - j.start)) * 100));
+              return (
+                <li key={i} className="text-xs">
+                  <div className="flex justify-between">
+                    <span className="font-semibold">
+                      {j.name}
+                      {j.count > 1 ? ` ×${j.count}` : ""}
+                    </span>
+                    <span className="tabular-nums text-slate-300">{duration(j.done - s.time)}</span>
+                  </div>
+                  <div className="mt-0.5 h-1.5 overflow-hidden rounded bg-slate-700">
+                    <div className="h-full bg-amber-400" style={{ width: `${pct}%` }} />
+                  </div>
+                </li>
+              );
+            })}
+            {jobs.length > 8 && <li className="text-xs text-slate-500">+{jobs.length - 8} more</li>}
+          </ul>
+        </Section>
+      )}
 
       <Section title="Flight ops: why planes do or don't come">
         <ul className="space-y-1.5">

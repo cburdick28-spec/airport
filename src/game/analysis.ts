@@ -1,8 +1,9 @@
 // Layout analysis: which gates work, why they don't, and what each flight class is waiting on.
 // Cached per layout version, so it is cheap to call every frame.
 
-import { BUILD, GATE_SIZE, PARKING_SPOTS, PLANES, SERVICE_TIME, TOWER_FORECAST_HOURS, type Tier } from "./constants";
+import { BUILD, CANCEL_REFUND, GATE_SIZE, PARKING_SPOTS, PLANES, SERVICE_TIME, TOWER_FORECAST_HOURS, type Tier } from "./constants";
 import { fieldTo, isWalkable, neighbors, shuttleActive, taxiReach } from "./pathfinding";
+import { money, duration } from "./money";
 import { findRunways, runHas, runIdx } from "./runways";
 import { crosswind, crosswindLimit, runwayBlock, runwayDir } from "./weather";
 import type { Analysis, ClassStatus, GameState, GateInfo, RunwayRun, TileInfo } from "./types";
@@ -253,6 +254,21 @@ export function nextTier(s: GameState): Tier | null {
 /** hover tooltip content for a tile */
 export function tileInfo(s: GameState, idx: number): TileInfo | null {
   const t = s.tiles[idx];
+  if (t.site) {
+    const site = t.site;
+    const total = Math.max(1, site.done - site.start);
+    const pct = Math.min(99, Math.floor(((s.time - site.start) / total) * 100));
+    const name = site.type === "gate" ? `${GATE_SIZE[site.level]} Gate` : site.level > 1 ? `${BUILD[site.type].name} L${site.level}` : BUILD[site.type].name;
+    return {
+      title: (t.type === site.type ? "Upgrading to " : "Building ") + name,
+      lines: [
+        `${pct}% done · opens in ${duration(site.done - s.time)}`,
+        t.type === site.type ? "Keeps working at its current level until then" : "Not usable until it opens",
+        `Bulldoze to cancel (${money(Math.round(site.cost * CANCEL_REFUND))} back)`,
+      ],
+      issues: [],
+    };
+  }
   if (t.type === "empty") return null;
   const a = getAnalysis(s);
   const def = BUILD[t.type];
@@ -352,6 +368,6 @@ export function tileInfo(s: GameState, idx: number): TileInfo | null {
       break;
   }
   if (def.maxLevel > 1 && t.level < def.maxLevel)
-    lines.push(`Upgrade: $${def.cost[t.level].toLocaleString()}`);
+    lines.push(`Upgrade: ${money(def.cost[t.level])} · ${duration(def.time[t.level])} to build`);
   return { title, lines, issues };
 }

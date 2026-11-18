@@ -9,6 +9,7 @@ import {
   BUS_CAPACITY,
   BUS_DWELL,
   BUS_SPEED,
+  CANCEL_REFUND,
   CITIES,
   DRIVER_HIRE_COST,
   DRIVER_WAGE,
@@ -42,6 +43,7 @@ import {
   TIER_NAMES,
   WALK_SPEED,
 } from "./constants";
+import { duration, money } from "./money";
 import { derivePath, distanceField, distFrom, fieldTo, taxiPath } from "./pathfinding";
 import { runHas, runHeadingDir, runIdx, runProgress, runStart } from "./runways";
 import type { Analysis, Contract, Flight, GameState, Passenger, PlaneClass, RunwayRun, StepKind, TileType } from "./types";
@@ -51,7 +53,7 @@ import { currentWeather, initWeather, runwayBlock, runwayDir, updateWeather, WEA
 // State
 // ---------------------------------------------------------------------------
 
-export function createEmptyState(money = 60000): GameState {
+export function createEmptyState(money = 60_000_000): GameState {
   const tiles = [];
   for (let i = 0; i < GRID_W * GRID_H; i++) tiles.push({ type: "empty" as TileType, level: 1 });
   return {
@@ -71,6 +73,7 @@ export function createEmptyState(money = 60000): GameState {
     flights: [],
     buses: [],
     facilities: {},
+    sites: [],
     gateFlight: {},
     gateCooldown: {},
     gateNote: {},
@@ -223,25 +226,40 @@ const ON_FLOOR: TileType[] = ["checkin", "tsa", "customs", "gate"];
 
 export function buildBlocker(s: GameState, idx: number, type: Exclude<TileType, "empty">): string | null {
   const t = s.tiles[idx];
+  if (t.site) return "Under construction";
   if (t.type === type) return "Already built here";
   if (t.type !== "empty" && !(t.type === "floor" && ON_FLOOR.includes(type))) return "Tile is occupied";
   if (s.money < BUILD[type].cost[0]) return s.money < 0 ? "Overdrawn: take a loan or cut costs" : "Not enough money";
   return null;
 }
 
+function startSite(s: GameState, idx: number, type: Exclude<TileType, "empty">, level: number, cost: number, minutes: number) {
+  spend(s, cost);
+  s.tiles[idx].site = { type, level, start: s.time, done: s.time + minutes, cost };
+  s.sites.push(idx);
+  s.version++;
+}
+
+/** start building: the money goes now, the building opens when construction is done */
 export function build(s: GameState, idx: number, type: Exclude<TileType, "empty">): ActionResult {
   const why = buildBlocker(s, idx, type);
   if (why) return { ok: false, msg: why };
-  const cost = BUILD[type].cost[0];
-  s.money -= cost;
-  s.expenseThisHour += cost;
-  s.tiles[idx] = { type, level: 1 };
-  s.version++;
-  return { ok: true, msg: "" };
+  const def = BUILD[type];
+  startSite(s, idx, type, 1, def.cost[0], def.time[0]);
+  return { ok: true, msg: def.paint ? "" : `${def.name} under construction: ready in ${duration(def.time[0])}` };
 }
 
 export function demolish(s: GameState, idx: number): ActionResult {
   const t = s.tiles[idx];
+  if (t.site) {
+    // cancel the construction, keep whatever was here before
+    const refund = Math.round(t.site.cost * CANCEL_REFUND);
+    s.money += refund;
+    delete t.site;
+    s.sites = s.sites.filter((i) => i !== idx);
+    s.version++;
+    return { ok: true, msg: `Construction cancelled: ${money(refund)} back` };
+  }
   if (t.type === "empty") return { ok: false, msg: "" };
   if (t.type === "gate" && s.gateFlight[idx] !== undefined) return { ok: false, msg: "Gate in use by a flight" };
   const def = BUILD[t.type];
@@ -256,20 +274,54 @@ export function demolish(s: GameState, idx: number): ActionResult {
   return { ok: true, msg: "" };
 }
 
+/** start an upgrade: the building keeps working at its current level until the work is done */
 export function upgrade(s: GameState, idx: number): ActionResult {
   const t = s.tiles[idx];
+  if (t.site) return { ok: false, msg: "Already under construction" };
   if (t.type === "empty") return { ok: false, msg: "" };
   const def = BUILD[t.type];
   if (def.maxLevel === 1) return { ok: false, msg: `${def.name} can't be upgraded` };
   if (t.level >= def.maxLevel) return { ok: false, msg: "Already max level" };
   const cost = def.cost[t.level];
-  if (s.money < cost) return { ok: false, msg: `Need $${cost.toLocaleString()}` };
-  s.money -= cost;
-  s.expenseThisHour += cost;
-  t.level++;
-  s.version++;
-  const label = t.type === "gate" ? `${GATE_SIZE[t.level]} Gate` : `${def.name} L${t.level}`;
-  return { ok: true, msg: `Upgraded to ${label}` };
+  if (s.money < cost) return { ok: false, msg: `Need ${money(cost)}` };
+  const label = t.type === "gate" ? `${GATE_SIZE[t.level + 1]} Gate` : `${def.name} L${t.level + 1}`;
+  startSite(s, idx, t.type, t.level + 1, cost, def.time[t.level]);
+  return { ok: true, msg: `Upgrading to ${label}: ready in ${duration(def.time[t.level])}` };
+}
+
+export function siteName(site: { type: Exclude<TileType, "empty">; level: number }): string {
+  if (site.type === "gate") return `${GATE_SIZE[site.level]} Gate`;
+  const def = BUILD[site.type];
+  return site.level > 1 ? `${def.name} L${site.level}` : def.name;
+}
+
+/** open any buildings whose construction is finished */
+function updateConstruction(s: GameState) {
+  if (s.sites.length === 0) return;
+  const open: string[] = [];
+  s.sites = s.sites.filter((idx) => {
+    const t = s.tiles[idx];
+    const site = t.site;
+    if (!site) return false;
+    if (s.time < site.done) return true;
+    s.tiles[idx] = { type: site.type, level: site.level };
+    s.version++;
+    if (!BUILD[site.type].paint) open.push(siteName(site));
+    return false;
+  });
+  for (const name of new Set(open)) {
+    const n = open.filter((x) => x === name).length;
+    addEvent(s, `Construction finished: ${name}${n > 1 ? ` ×${n}` : ""} is open`, "good");
+  }
+}
+
+/** finish every construction site right now (tests and pre-built layouts) */
+export function finishAllConstruction(s: GameState) {
+  for (const idx of s.sites) {
+    const site = s.tiles[idx].site;
+    if (site) site.done = s.time;
+  }
+  updateConstruction(s);
 }
 
 export function hireDriver(s: GameState): ActionResult {
@@ -309,20 +361,20 @@ function roundTo(n: number, step: number) {
 
 /** biggest loan the bank will give this airport */
 export function maxLoan(s: GameState): number {
-  return roundTo(30000 + 16 * hourlyUpkeep(s), LOAN_STEP);
+  return roundTo(30_000_000 + 16 * hourlyUpkeep(s), LOAN_STEP);
 }
 
 /** the airport goes bankrupt when its balance drops below this */
 export function bankruptAt(s: GameState): number {
-  return -roundTo(15000 + 8 * hourlyUpkeep(s), 5000);
+  return -roundTo(15_000_000 + 8 * hourlyUpkeep(s), 5_000_000);
 }
 
 export function takeLoan(s: GameState): ActionResult {
   if (s.loan + LOAN_STEP > maxLoan(s))
-    return { ok: false, msg: `The bank's limit is $${maxLoan(s).toLocaleString()} for an airport this size` };
+    return { ok: false, msg: `The bank's limit is ${money(maxLoan(s))} for an airport this size` };
   s.loan += LOAN_STEP;
   s.money += LOAN_STEP;
-  return { ok: true, msg: `Borrowed $${LOAN_STEP.toLocaleString()} at ${LOAN_RATE * 100}% a day` };
+  return { ok: true, msg: `Borrowed ${money(LOAN_STEP)} at ${LOAN_RATE * 100}% a day` };
 }
 
 export function repayLoan(s: GameState): ActionResult {
@@ -331,7 +383,7 @@ export function repayLoan(s: GameState): ActionResult {
   if (s.money < amount) return { ok: false, msg: "Not enough money" };
   s.loan -= amount;
   s.money -= amount;
-  return { ok: true, msg: s.loan > 0 ? `Repaid $${amount.toLocaleString()}` : "Loan fully repaid" };
+  return { ok: true, msg: s.loan > 0 ? `Repaid ${money(amount)}` : "Loan fully repaid" };
 }
 
 export function setFees(s: GameState, level: number): ActionResult {
@@ -1101,7 +1153,7 @@ function makeOffer(s: GameState): Contract {
   const airline = AIRLINES[Math.floor(Math.random() * AIRLINES.length)];
   const flights = [5, 4, 3, 2, 2][cls] + Math.floor(Math.random() * 4);
   const hours = Math.round(flights * (1.0 + Math.random() * 0.7));
-  const reward = Math.round((flights * def.landingFee * (0.9 + Math.random() * 0.6)) / 100) * 100;
+  const reward = Math.round((flights * def.landingFee * (0.9 + Math.random() * 0.6)) / 100_000) * 100_000;
   return {
     id: s.nextId++,
     airline,
@@ -1113,7 +1165,7 @@ function makeOffer(s: GameState): Contract {
     deadline: 0,
     bonusPerFlight: Math.round(def.landingFee * 0.3),
     reward,
-    penalty: Math.round((reward * 0.5) / 100) * 100,
+    penalty: Math.round((reward * 0.5) / 100_000) * 100_000,
     latePenalty: Math.round(def.landingFee * 0.5),
   };
 }
@@ -1131,7 +1183,7 @@ function updateContracts(s: GameState) {
   for (const c of s.contracts) {
     if (s.time > c.deadline) {
       spend(s, c.penalty);
-      addEvent(s, `${c.airlineName} contract failed: ${c.done}/${c.flights} flights. Penalty $${c.penalty.toLocaleString()}.`, "bad");
+      addEvent(s, `${c.airlineName} contract failed: ${c.done}/${c.flights} flights. Penalty ${money(c.penalty)}.`, "bad");
       c.done = -1;
     }
   }
@@ -1144,7 +1196,7 @@ function settleContractFlight(s: GameState, f: Flight, onTime: boolean) {
   if (!c) return;
   if (!onTime) {
     spend(s, c.latePenalty);
-    addEvent(s, `${c.airlineName} fined you $${c.latePenalty.toLocaleString()}: ${f.code} left passengers behind`, "bad");
+    addEvent(s, `${c.airlineName} fined you ${money(c.latePenalty)}: ${f.code} left passengers behind`, "bad");
     return;
   }
   c.done++;
@@ -1153,7 +1205,7 @@ function settleContractFlight(s: GameState, f: Flight, onTime: boolean) {
     earn(s, c.reward);
     s.contractsCompleted++;
     s.contracts = s.contracts.filter((x) => x !== c);
-    addEvent(s, `${c.airlineName} contract complete! Bonus $${c.reward.toLocaleString()}.`, "good");
+    addEvent(s, `${c.airlineName} contract complete! Bonus ${money(c.reward)}.`, "good");
   }
 }
 
@@ -1191,7 +1243,7 @@ function hourTick(s: GameState) {
     s.bankrupt = true;
     addEvent(s, "Bankrupt! The bank has taken over the airport.", "bad");
   } else if (s.money < 0) {
-    addEvent(s, `Overdrawn: ${OVERDRAFT_RATE * 100}% a day interest. Bankrupt below -$${(-limit).toLocaleString()}.`, "bad");
+    addEvent(s, `Overdrawn: ${OVERDRAFT_RATE * 100}% a day interest. Bankrupt below ${money(limit)}.`, "bad");
   }
   s.incomeLastHour = s.incomeThisHour;
   s.expenseLastHour = s.expenseThisHour;
@@ -1209,6 +1261,7 @@ export function step(s: GameState, dt: number) {
   if (s.bankrupt) return;
   s.time += dt;
   updateWeather(s, dt);
+  updateConstruction(s);
   let a = getAnalysis(s);
 
   const demand = currentDemand(s);

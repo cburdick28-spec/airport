@@ -1,7 +1,4 @@
-export function money(n: number): string {
-  const r = Math.round(n);
-  return (r < 0 ? "-$" : "$") + Math.abs(r).toLocaleString("en-US");
-}
+export { duration, money } from "@/game/money";
 
 export function clock(minutes: number): string {
   const day = Math.floor(minutes / 1440) + 1;

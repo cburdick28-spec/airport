@@ -6,7 +6,7 @@ import { BUILD } from "@/game/constants";
 import { buildBlocker } from "@/game/simulation";
 import AirportPicker from "./AirportPicker";
 import BuildMenu from "./BuildMenu";
-import { money } from "./format";
+import { duration, money } from "./format";
 import Game3D from "./Game3D";
 import GameCanvas from "./GameCanvas";
 import SidePanel from "./SidePanel";
@@ -30,7 +30,7 @@ function Tooltip({ pointer }: { pointer: Pointer }) {
   if (tool?.kind === "build") {
     const def = BUILD[tool.type];
     const why = buildBlocker(s, pointer.idx, tool.type);
-    title = `Build ${def.name} · ${money(def.cost[0])}`;
+    title = `Build ${def.name} · ${money(def.cost[0])} · ${duration(def.time[0])}`;
     rows.push(why ? { text: why, tone: "text-rose-300" } : { text: def.desc, tone: "text-slate-300" });
   } else if (!info) {
     return null;

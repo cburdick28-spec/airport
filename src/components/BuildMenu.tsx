@@ -15,7 +15,7 @@ import {
 } from "@/game/constants";
 import { maxLoan } from "@/game/simulation";
 import type { GameState, TileType } from "@/game/types";
-import { money } from "./format";
+import { duration, money } from "./format";
 import { store } from "./store";
 
 const TABS: { id: Category; label: string }[] = [
@@ -128,7 +128,7 @@ export default function BuildMenu({ s }: { s: GameState }) {
                 active={tool?.kind === "build" && tool.type === t}
                 swatch={SWATCH[t]}
                 title={t === "gate" ? "Gate (Small)" : def.name}
-                sub={`${money(def.cost[0])} · ${money(def.upkeep[0])}/hr`}
+                sub={`${money(def.cost[0])} · ${duration(def.time[0])} · ${money(def.upkeep[0])}/hr`}
                 hint={def.desc}
                 disabled={s.money < def.cost[0]}
                 onClick={() => store.setTool({ kind: "build", type: t })}
@@ -140,7 +140,7 @@ export default function BuildMenu({ s }: { s: GameState }) {
             swatch="bg-amber-600"
             title="Medium / Large / Jumbo"
             sub="Upgrade a Small gate"
-            hint="Pick the Upgrade tool, then click a gate. Medium +$8,000, Large +$16,000, Jumbo +$30,000 (for Super Jumbos)."
+            hint="Pick the Upgrade tool, then click a gate. Medium +$8M (12h), Large +$16M (18h), Jumbo +$30M (24h, for Super Jumbos)."
             active={tool?.kind === "upgrade"}
             onClick={() => store.setTool({ kind: "upgrade" })}
           />

@@ -40,6 +40,8 @@ interface SaveData {
   otp?: number;
   diversions?: number;
   scenarioId?: string;
+  /** [tile, type, level, start, done, cost] */
+  sites?: [number, number, number, number, number, number][];
 }
 
 export function serialize(s: GameState): string {
@@ -74,6 +76,10 @@ export function serialize(s: GameState): string {
     otp: s.otp,
     diversions: s.diversions,
     scenarioId: s.scenarioId,
+    sites: s.sites.flatMap((i) => {
+      const site = s.tiles[i].site;
+      return site ? [[i, TYPES.indexOf(site.type), site.level, site.start, site.done, site.cost] as [number, number, number, number, number, number]] : [];
+    }),
   };
   return JSON.stringify(data);
 }
@@ -109,6 +115,12 @@ export function deserialize(json: string): GameState | null {
     s.otp = d.otp ?? 90;
     s.diversions = d.diversions ?? 0;
     s.scenarioId = d.scenarioId ?? "blank";
+    for (const [i, type, level, start, done, cost] of d.sites ?? []) {
+      const kind = TYPES[type];
+      if (!s.tiles[i] || !kind || kind === "empty") continue;
+      s.tiles[i].site = { type: kind, level, start, done, cost };
+      s.sites.push(i);
+    }
     if (d.forecast && d.forecast.length > 0) s.forecast = d.forecast;
     else resetWeather(s);
     s.nextSchedule = s.time;

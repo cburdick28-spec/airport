@@ -134,7 +134,7 @@ export const store = {
     if (tool.kind === "build") {
       if (dragging && !BUILD[tool.type].paint) return;
       res = build(s, idx, tool.type);
-      if (dragging && res.msg === "Already built here") return;
+      if (dragging && (res.msg === "Already built here" || res.msg === "Under construction")) return;
     } else if (tool.kind === "bulldoze") {
       res = demolish(s, idx);
     } else if (!dragging) {
