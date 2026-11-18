@@ -2,8 +2,9 @@
 
 import { getAnalysis, TIER_UNLOCKS, tierProgress } from "@/game/analysis";
 import { FEES, GATE_SIZE, LOAN_RATE, MAX_CONTRACTS, OVERDRAFT_RATE, PLANES, TIER_NAMES, TOWER_FORECAST_HOURS } from "@/game/constants";
-import { bankruptAt, demandParts, hourlyUpkeep, maxLoan, parkingUsed, siteName } from "@/game/simulation";
-import type { Flight, GameState } from "@/game/types";
+import { bankruptAt, demandParts, hourlyUpkeep, MAX_NAME, maxLoan, parkingUsed, siteName } from "@/game/simulation";
+import type { Flight, GameState, TerminalStyle } from "@/game/types";
+import { STYLE_IDS, STYLES } from "@/game/projects";
 import { compass, currentWeather, runwayStates, WEATHER } from "@/game/weather";
 import { WindArrow } from "./WeatherBadge";
 import { clock, duration, money } from "./format";
@@ -58,7 +59,7 @@ export default function SidePanel({ s }: { s: GameState }) {
     const key = pr ? `p${pr.id}` : `${site.type}:${site.level}:${Math.round(site.done / 15)}`;
     const p = projects.get(key);
     if (pr) {
-      if (!p) projects.set(key, { name: `${pr.label} ${pr.name}`, count: 1, done: pr.done, start: pr.start, cost: pr.cost });
+      if (!p) projects.set(key, { name: pr.custom || `${pr.label} ${pr.name}`, count: 1, done: pr.done, start: pr.start, cost: pr.cost });
     } else if (p) {
       p.count++;
       p.cost += site.cost;
@@ -148,6 +149,55 @@ export default function SidePanel({ s }: { s: GameState }) {
           </ul>
         </Section>
       )}
+
+      <Section title="Terminals and style">
+        <ul className="space-y-1.5">
+          {[...s.terminals, ...s.projects.map((p) => ({ ...p, code: p.label, building: true }))].map((t) => (
+            <li key={t.id} className="flex items-center gap-1.5">
+              <span className="h-3 w-3 shrink-0 rounded-sm" style={{ background: STYLES[t.style].accent }} />
+              <input
+                key={t.id + ":" + t.custom}
+                defaultValue={t.custom}
+                placeholder={t.code}
+                maxLength={MAX_NAME}
+                title="Rename (Enter to save)"
+                onBlur={(e) => e.target.value !== t.custom && store.renameTerminal(t.id, e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                className="min-w-0 flex-1 rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-xs text-slate-100 placeholder:text-slate-400"
+              />
+              <select
+                value={t.style}
+                onChange={(e) => store.styleTerminal(t.id, e.target.value as TerminalStyle)}
+                className="rounded border border-slate-700 bg-slate-800 px-1 py-0.5 text-xs"
+              >
+                {STYLE_IDS.map((id) => (
+                  <option key={id} value={id}>
+                    {STYLES[id].name}
+                  </option>
+                ))}
+              </select>
+              {"building" in t && <span className="text-[10px] text-amber-300">building</span>}
+            </li>
+          ))}
+          <li className="flex items-center gap-1.5 text-xs">
+            <span className="flex-1 text-slate-400">Everything else</span>
+            <select
+              value={s.baseStyle}
+              onChange={(e) => store.setBaseStyle(e.target.value as TerminalStyle)}
+              className="rounded border border-slate-700 bg-slate-800 px-1 py-0.5 text-xs"
+            >
+              {STYLE_IDS.map((id) => (
+                <option key={id} value={id}>
+                  {STYLES[id].name}
+                </option>
+              ))}
+            </select>
+          </li>
+        </ul>
+        {s.terminals.length === 0 && s.projects.length === 0 && (
+          <p className="mt-1 text-[11px] text-slate-500">Build a terminal in the Terminals / Land tab to name and style it.</p>
+        )}
+      </Section>
 
       <Section title="Flight ops: why planes do or don't come">
         <ul className="space-y-1.5">

@@ -14,8 +14,8 @@ import {
   SNOW_CREW_WAGE,
   type Category,
 } from "@/game/constants";
-import { maxLoan } from "@/game/simulation";
-import { TERMINALS, templateCounts } from "@/game/projects";
+import { MAX_NAME, maxLoan } from "@/game/simulation";
+import { STYLE_IDS, STYLES, TERMINALS, templateCounts } from "@/game/projects";
 import type { GameState, TileType } from "@/game/types";
 import { duration, money } from "./format";
 import { store } from "./store";
@@ -124,6 +124,30 @@ export default function BuildMenu({ s }: { s: GameState }) {
       <div className="flex gap-2 overflow-x-auto pb-1">
         {tab === "projects" && (
           <>
+            <div className="flex shrink-0 flex-col justify-center gap-1 rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5">
+              <span className="text-xs text-slate-400">Style: {STYLES[store.projectStyle].name}</span>
+              <div className="flex gap-1">
+                {STYLE_IDS.map((id) => (
+                  <button
+                    key={id}
+                    onClick={() => store.setProjectLook(id, null)}
+                    title={`${STYLES[id].name}: ${STYLES[id].blurb}`}
+                    className={`h-6 w-6 rounded border-2 ${store.projectStyle === id ? "border-white" : "border-transparent"}`}
+                    style={{ background: `linear-gradient(135deg, ${STYLES[id].floor} 50%, ${STYLES[id].wall} 50%)`, outline: `2px solid ${STYLES[id].accent}` }}
+                  />
+                ))}
+              </div>
+            </div>
+            <div className="flex shrink-0 flex-col justify-center gap-1 rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5">
+              <span className="text-xs text-slate-400">Name (optional)</span>
+              <input
+                value={store.projectName}
+                maxLength={MAX_NAME}
+                placeholder="e.g. Skyline Terminal"
+                onChange={(e) => store.setProjectLook(null, e.target.value)}
+                className="w-40 rounded border border-slate-600 bg-slate-900 px-2 py-0.5 text-sm text-slate-100 placeholder:text-slate-500"
+              />
+            </div>
             {TERMINALS.map((t) => {
               const n = templateCounts(t);
               const gates = n.gates

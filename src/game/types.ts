@@ -34,10 +34,29 @@ export interface Construction {
   projectId?: number;
 }
 
+export type TerminalStyle = "classic" | "glass" | "brick" | "futuristic" | "eco";
+
+/** a terminal you built, after its grand opening */
+export interface Terminal {
+  id: number;
+  /** automatic short code, e.g. "T2" */
+  code: string;
+  /** the name you gave it (empty = use the code) */
+  custom: string;
+  template: string;
+  style: TerminalStyle;
+  tiles: number[];
+  x: number;
+  y: number;
+}
+
 export interface Project {
   id: number;
   template: string;
   name: string;
+  style: TerminalStyle;
+  /** the name you gave it (empty = use the code) */
+  custom: string;
   /** short sign shown over the terminal, e.g. "T2" */
   label: string;
   tiles: number[];
@@ -257,6 +276,10 @@ export interface GameState {
   projects: Project[];
   /** recent grand openings (for confetti) */
   celebrations: Celebration[];
+  /** terminals built as megaprojects */
+  terminals: Terminal[];
+  /** look of every other building */
+  baseStyle: TerminalStyle;
   // ---- weather ----
   climate: Climate;
   /** current spell first, then the coming ones */

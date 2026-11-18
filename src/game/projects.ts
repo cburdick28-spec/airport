@@ -9,7 +9,7 @@
 // once with a ribbon-cutting.
 
 import { BUILD, type Tier } from "./constants";
-import type { GameState, TileType } from "./types";
+import type { GameState, TerminalStyle, TileType } from "./types";
 
 export const PLOT = 16;
 
@@ -265,4 +265,125 @@ export function templateCounts(t: TerminalTemplate) {
       if (ch === "U") customs++;
     }
   return { gates, tsa, desks, customs };
+}
+
+// ---------------------------------------------------------------------------
+// Terminal names and styles
+// ---------------------------------------------------------------------------
+
+export interface StyleDef {
+  name: string;
+  blurb: string;
+  /** swatch / sign colour */
+  accent: string;
+  // 2D
+  floor2d: string;
+  line2d: string;
+  // 3D
+  floor: string;
+  base: string;
+  wall: string;
+  /** 1 = solid walls */
+  wallOpacity: number;
+  wallHeight: number;
+  rail: string;
+  /** rails glow this colour (neon) */
+  glow?: string;
+  /** see-through roof canopy */
+  roof?: { color: string; opacity: number };
+  /** plants along the walls */
+  planters?: boolean;
+}
+
+export const STYLES: Record<TerminalStyle, StyleDef> = {
+  classic: {
+    name: "Classic",
+    blurb: "Pale stone floors and low glass walls",
+    accent: "#475569",
+    floor2d: "#f8f5ee",
+    line2d: "#e7e2d6",
+    floor: "#f3efe6",
+    base: "#dcd7cb",
+    wall: "#bfe3ff",
+    wallOpacity: 0.32,
+    wallHeight: 0.52,
+    rail: "#8a97a8",
+  },
+  glass: {
+    name: "Glass",
+    blurb: "Tall glass walls under a light canopy roof",
+    accent: "#0284c7",
+    floor2d: "#f0f9ff",
+    line2d: "#cfe8f7",
+    floor: "#f8fafc",
+    base: "#e2e8f0",
+    wall: "#a5f3fc",
+    wallOpacity: 0.24,
+    wallHeight: 0.9,
+    rail: "#cbd5e1",
+    roof: { color: "#e0f2fe", opacity: 0.2 },
+  },
+  brick: {
+    name: "Brick",
+    blurb: "Red brick walls and warm terracotta floors",
+    accent: "#9a3412",
+    floor2d: "#ecd2b4",
+    line2d: "#dcb48c",
+    floor: "#d9b08a",
+    base: "#7c2d12",
+    wall: "#a0452c",
+    wallOpacity: 1,
+    wallHeight: 0.42,
+    rail: "#44403c",
+  },
+  futuristic: {
+    name: "Futuristic",
+    blurb: "Dark floors, violet glass and glowing neon trim",
+    accent: "#7c3aed",
+    floor2d: "#cbd5e1",
+    line2d: "#a5b4fc",
+    floor: "#273449",
+    base: "#0f172a",
+    wall: "#8b5cf6",
+    wallOpacity: 0.32,
+    wallHeight: 0.62,
+    rail: "#22d3ee",
+    glow: "#22d3ee",
+  },
+  eco: {
+    name: "Eco",
+    blurb: "Timber frames, green glass and planters",
+    accent: "#15803d",
+    floor2d: "#f1e7cf",
+    line2d: "#dccba3",
+    floor: "#e7d8b5",
+    base: "#7c5a3a",
+    wall: "#bbf7d0",
+    wallOpacity: 0.28,
+    wallHeight: 0.5,
+    rail: "#8b5e34",
+    planters: true,
+  },
+};
+
+export const STYLE_IDS = Object.keys(STYLES) as TerminalStyle[];
+
+export function terminalName(t: { code: string; custom: string }): string {
+  return t.custom.trim() || t.code;
+}
+
+const styleCache = new WeakMap<GameState, { version: number; map: Map<number, TerminalStyle> }>();
+
+/** style of each tile that belongs to a built terminal (others use s.baseStyle) */
+export function styleMap(s: GameState): Map<number, TerminalStyle> {
+  const hit = styleCache.get(s);
+  if (hit && hit.version === s.version) return hit.map;
+  const map = new Map<number, TerminalStyle>();
+  for (const t of s.terminals) for (const i of t.tiles) map.set(i, t.style);
+  styleCache.set(s, { version: s.version, map });
+  return map;
+}
+
+export function styleAt(s: GameState, idx: number): TerminalStyle {
+  return styleMap(s).get(idx) ?? s.baseStyle ?? "classic";
 }

@@ -4,7 +4,7 @@
 import { SAVE_KEY } from "./constants";
 import { addEvent, createEmptyState, resetWeather } from "./simulation";
 import { initLand } from "./projects";
-import type { Climate, Contract, GameState, MapLabel, Project, TileType, WeatherSpell } from "./types";
+import type { Climate, Contract, GameState, MapLabel, Project, Terminal, TerminalStyle, TileType, WeatherSpell } from "./types";
 
 const TYPES: TileType[] = [
   "empty", "parking", "shuttle", "sidewalk", "floor", "checkin", "tsa", "customs", "gate", "runway", "taxiway", "tower",
@@ -46,6 +46,8 @@ interface SaveData {
   owned?: string;
   landPermits?: number;
   projects?: Project[];
+  terminals?: Terminal[];
+  baseStyle?: TerminalStyle;
   /** [tile, type, level, start, done, cost] */
   sites?: [number, number, number, number, number, number][];
 }
@@ -86,6 +88,8 @@ export function serialize(s: GameState): string {
     owned: s.owned.map((o) => (o ? "1" : "0")).join(""),
     landPermits: s.landPermits,
     projects: s.projects,
+    terminals: s.terminals,
+    baseStyle: s.baseStyle,
     sites: s.sites.flatMap((i) => {
       const site = s.tiles[i].site;
       return site ? [[i, TYPES.indexOf(site.type), site.level, site.start, site.done, site.cost] as [number, number, number, number, number, number]] : [];
@@ -134,7 +138,9 @@ export function deserialize(json: string): GameState | null {
     s.otp = d.otp ?? 90;
     s.diversions = d.diversions ?? 0;
     s.scenarioId = d.scenarioId ?? "blank";
-    s.projects = d.projects ?? [];
+    s.projects = (d.projects ?? []).map((p) => ({ ...p, style: p.style ?? "classic", custom: p.custom ?? "" }));
+    s.terminals = d.terminals ?? [];
+    s.baseStyle = d.baseStyle ?? "classic";
     const projectOf = new Map<number, number>();
     for (const pr of s.projects) for (const i of pr.tiles) projectOf.set(i, pr.id);
     for (const [i, type, level, start, done, cost] of d.sites ?? []) {

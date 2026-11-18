@@ -11,7 +11,19 @@ import { runHeadingDir, runIdx, runProgress, runStart, runwayMarks } from "@/gam
 import { buildBlocker } from "@/game/simulation";
 import type { Analysis, Flight, GameState, TileType, WeatherKind } from "@/game/types";
 import { currentWeather, runwayStates } from "@/game/weather";
-import { claimable, footprint, plotCols, plotOf, plotRect, plotRows, TERMINALS } from "@/game/projects";
+import {
+  claimable,
+  footprint,
+  plotCols,
+  plotOf,
+  plotRect,
+  plotRows,
+  STYLE_IDS,
+  STYLES,
+  styleAt,
+  terminalName,
+  TERMINALS,
+} from "@/game/projects";
 import { projectBlocker } from "@/game/simulation";
 import { PREVIEW_COLOR, type Tool } from "./renderer";
 
@@ -335,6 +347,42 @@ export class Scene3D {
     this.mat("towerglass", "#7dd3fc", { roughness: 0.1, metalness: 0.2, emissive: "#38bdf8", emissiveIntensity: 0.2 });
     this.mat("sock", "#f97316", { roughness: 0.6 });
     this.mat("dirt", "#a8875a", { roughness: 1 });
+    // terminal styles: classic reuses the original materials
+    for (const id of STYLE_IDS) {
+      const st = STYLES[id];
+      if (id === "classic") {
+        this.mats.floor_classic = this.mats.floor;
+        this.mats.wallbase_classic = this.mats.wallbase;
+        this.mats.glass_classic = this.mats.glass;
+        this.mats.rail_classic = this.mats.rail;
+        continue;
+      }
+      this.mat("floor_" + id, st.floor, { roughness: id === "futuristic" ? 0.35 : 0.6 });
+      this.mat("wallbase_" + id, st.base, { roughness: 0.8 });
+      const see = st.wallOpacity < 1;
+      this.mat("glass_" + id, st.wall, {
+        transparent: see,
+        opacity: st.wallOpacity,
+        roughness: see ? 0.08 : 0.9,
+        metalness: see ? 0.1 : 0,
+        depthWrite: !see,
+        emissive: id === "futuristic" ? "#7c3aed" : "#ffd28a",
+        emissiveIntensity: 0,
+      });
+      this.mat("rail_" + id, st.rail, {
+        metalness: st.glow ? 0 : 0.4,
+        roughness: 0.4,
+        emissive: st.glow ?? "#000000",
+        emissiveIntensity: st.glow ? 0.8 : 0,
+      });
+      if (st.roof)
+        this.mat("roof_" + id, st.roof.color, {
+          transparent: true,
+          opacity: st.roof.opacity,
+          roughness: 0.1,
+          depthWrite: false,
+        });
+    }
     this.mat("hazard", "#f59e0b", { roughness: 0.6 });
     this.mat("crane", "#facc15", { roughness: 0.5, metalness: 0.3 });
     this.mat("concrete", "#cbd5e1", { roughness: 0.9 });
@@ -524,8 +572,12 @@ export class Scene3D {
             break;
           }
           default: {
-            // ---- indoor tiles: floor slab + glass walls on exposed edges ----
-            box("floor", x, 0.05, z, 1, 0.1, 1);
+            // ---- indoor tiles: floor slab + walls on exposed edges, in the terminal's style ----
+            const sid = styleAt(s, idx);
+            const sty = STYLES[sid];
+            const wallTop = 0.24 + sty.wallHeight;
+            box("floor_" + sid, x, 0.05, z, 1, 0.1, 1);
+            if (sty.roof) box("roof_" + sid, x, wallTop + 0.1, z, 1, 0.03, 1, 0, false);
             const info = t.type === "gate" ? a.gateByIdx.get(idx) : undefined;
             for (const [dx, dz] of SIDES) {
               const n = type(x + dx, z + dz);
@@ -539,13 +591,15 @@ export class Scene3D {
                 // doorway: two posts and a header
                 const ox = dx ? 0 : 0.46;
                 const oz = dz ? 0 : 0.46;
-                box("rail", ex - ox, 0.5, ez - oz, 0.07, 0.8, 0.07);
-                box("rail", ex + ox, 0.5, ez + oz, 0.07, 0.8, 0.07);
-                box("rail", ex, 0.9, ez, dx ? 0.07 : 1, 0.07, dz ? 0.07 : 1);
+                const postH = Math.max(0.8, sty.wallHeight + 0.3);
+                box("rail_" + sid, ex - ox, 0.1 + postH / 2, ez - oz, 0.07, postH, 0.07);
+                box("rail_" + sid, ex + ox, 0.1 + postH / 2, ez + oz, 0.07, postH, 0.07);
+                box("rail_" + sid, ex, 0.1 + postH, ez, dx ? 0.07 : 1, 0.07, dz ? 0.07 : 1);
               } else {
-                box("wallbase", ex, 0.17, ez, dx ? 0.07 : 1, 0.14, dz ? 0.07 : 1, 0, true);
-                box("glass", ex, 0.5, ez, sx, 0.52, sz, 0, false);
-                box("rail", ex, 0.78, ez, dx ? 0.08 : 1, 0.05, dz ? 0.08 : 1, 0, true);
+                box("wallbase_" + sid, ex, 0.17, ez, dx ? 0.07 : 1, 0.14, dz ? 0.07 : 1, 0, true);
+                box("glass_" + sid, ex, 0.24 + sty.wallHeight / 2, ez, sx, sty.wallHeight, sz, 0, sty.wallOpacity >= 1);
+                box("rail_" + sid, ex, wallTop, ez, dx ? 0.08 : 1, 0.05, dz ? 0.08 : 1, 0, true);
+                if (sty.planters) box("tree1", ex, wallTop + 0.08, ez, dx ? 0.14 : 0.8, 0.12, dz ? 0.8 : 0.14, 0, true);
               }
             }
 
@@ -627,7 +681,13 @@ export class Scene3D {
     for (const l of s.labels) {
       const sign = this.sprite(l.text, "#0f172a");
       sign.position.set(l.x, 2.6, l.y);
-      sign.scale.set(2.2, 1.1, 1);
+      sign.scale.set(1.1 * this.aspect(sign), 1.1, 1);
+      this.labelGroup.add(sign);
+    }
+    for (const t of s.terminals) {
+      const sign = this.sprite(terminalName(t), STYLES[t.style].accent);
+      sign.position.set(t.x, 2.9, t.y);
+      sign.scale.set(1.2 * this.aspect(sign), 1.2, 1);
       this.labelGroup.add(sign);
     }
 
@@ -658,27 +718,40 @@ export class Scene3D {
     let tex = this.textures.get(key);
     if (tex) return tex;
     const c = document.createElement("canvas");
-    c.width = 128;
+    const font = `800 ${text.length > 3 ? 26 : 32}px system-ui, sans-serif`;
+    const probe = c.getContext("2d");
+    let width = 128;
+    if (probe) {
+      probe.font = font;
+      width = Math.max(128, Math.ceil(probe.measureText(text).width + 44));
+    }
+    c.width = width;
     c.height = 64;
     const ctx = c.getContext("2d");
     if (ctx) {
       ctx.fillStyle = bg;
       ctx.beginPath();
-      ctx.roundRect(4, 8, 120, 48, 18);
+      ctx.roundRect(4, 8, width - 8, 48, 18);
       ctx.fill();
       ctx.strokeStyle = "rgba(255,255,255,0.9)";
       ctx.lineWidth = 4;
       ctx.stroke();
       ctx.fillStyle = "#ffffff";
-      ctx.font = `800 ${text.length > 3 ? 26 : 32}px system-ui, sans-serif`;
+      ctx.font = font;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(text, 64, 34);
+      ctx.fillText(text, width / 2, 34);
     }
     tex = new THREE.CanvasTexture(c);
+    tex.userData.aspect = width / 64;
     tex.colorSpace = THREE.SRGBColorSpace;
     this.textures.set(key, tex);
     return tex;
+  }
+
+  /** width / height of a sign's texture */
+  private aspect(sp: THREE.Sprite): number {
+    return (sp.material.map?.userData.aspect as number | undefined) ?? 2;
   }
 
   private sprite(text: string, bg: string): THREE.Sprite {
@@ -1056,6 +1129,13 @@ export class Scene3D {
 
     const night = Math.max(1 - day, this.gloom * 0.6);
     this.mats.glass.emissiveIntensity = night * 0.55;
+    for (const id of STYLE_IDS) {
+      if (id === "classic") continue;
+      const g = this.mats["glass_" + id];
+      if (g) g.emissiveIntensity = id === "futuristic" ? 0.15 + night * 0.8 : STYLES[id].wallOpacity < 1 ? night * 0.55 : 0;
+      const r = this.mats["rail_" + id];
+      if (r && STYLES[id].glow) r.emissiveIntensity = 0.8 + night * 2.2;
+    }
     this.mats.rwlight.emissiveIntensity = 0.5 + night * 3;
     this.mats.txlight.emissiveIntensity = 0.5 + night * 2.5;
     this.mats.screen.emissiveIntensity = 0.8 + night * 1.2;
@@ -1304,7 +1384,7 @@ export class Scene3D {
     }
     this.confettiSign.visible = true;
     this.confettiSign.position.set(c.x, 4.2 + Math.sin(age) * 0.15, c.y);
-    this.confettiSign.scale.set(4, 2, 1);
+    this.confettiSign.scale.set(2 * this.aspect(this.confettiSign), 2, 1);
   }
 
   dispose() {

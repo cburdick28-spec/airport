@@ -8,6 +8,9 @@ import {
   claimPlot,
   demolish,
   placeProject,
+  renameTerminal,
+  setBaseStyle,
+  styleTerminal,
   fireDriver,
   fireSnowCrew,
   hireDriver,
@@ -23,7 +26,7 @@ import {
 import { plotOf } from "@/game/projects";
 import { SCENARIOS } from "@/game/scenarios";
 import { createTutorialAirport } from "@/game/starter";
-import type { GameState } from "@/game/types";
+import type { GameState, TerminalStyle } from "@/game/types";
 import type { Tool } from "@/render/renderer";
 
 export interface Flash {
@@ -45,6 +48,9 @@ export const store = {
   lastEventId: 0,
   /** true = 3D view (three.js), false = classic 2D canvas */
   view3d: true,
+  /** style and name for the next terminal you place */
+  projectStyle: "glass" as TerminalStyle,
+  projectName: "",
   /** airport picker dialog open? */
   picker: false,
 
@@ -123,6 +129,20 @@ export const store = {
     store.paused = !store.paused;
     store.bump();
   },
+  setProjectLook(style: TerminalStyle | null, name: string | null) {
+    if (style) store.projectStyle = style;
+    if (name !== null) store.projectName = name;
+    store.bump();
+  },
+  renameTerminal(id: number, name: string) {
+    if (store.state) store.say(renameTerminal(store.state, id, name).msg, "info");
+  },
+  styleTerminal(id: number, style: TerminalStyle) {
+    if (store.state) store.say(styleTerminal(store.state, id, style).msg, "info");
+  },
+  setBaseStyle(style: TerminalStyle) {
+    if (store.state) store.say(setBaseStyle(store.state, style).msg, "info");
+  },
   rotate() {
     if (store.tool?.kind === "project") {
       store.tool = { ...store.tool, rot: (store.tool.rot + 1) % 4 };
@@ -148,8 +168,14 @@ export const store = {
       res = demolish(s, idx);
     } else if (tool.kind === "project") {
       if (dragging) return;
-      res = placeProject(s, tool.id, tool.rot, idx % s.w, Math.floor(idx / s.w));
-      if (res.ok) store.tool = null;
+      res = placeProject(s, tool.id, tool.rot, idx % s.w, Math.floor(idx / s.w), {
+        name: store.projectName,
+        style: store.projectStyle,
+      });
+      if (res.ok) {
+        store.tool = null;
+        store.projectName = "";
+      }
     } else if (tool.kind === "claim") {
       if (dragging) return;
       res = claimPlot(s, plotOf(s, idx));

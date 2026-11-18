@@ -69,6 +69,7 @@ export default function Game3D({ onPointer }: Props) {
       store.setView3d(false, "3D graphics stopped working, switched to the 2D map");
     };
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
       const k = e.key.toLowerCase();
       if (PAN_KEYS.includes(k)) {
         scene.keys.add(k);

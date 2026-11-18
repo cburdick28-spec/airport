@@ -8,8 +8,12 @@ import {
   claimPlot,
   createEmptyState,
   demolish,
+  hireSnowCrew,
   placeProject,
   projectBlocker,
+  renameTerminal,
+  setBaseStyle,
+  styleTerminal,
   finishAllConstruction,
   hourlyUpkeep,
   repayLoan,
@@ -19,7 +23,7 @@ import {
   takeLoan,
   upgrade,
 } from "../src/game/simulation";
-import { claimablePlots, isOwned, plotRect, TERMINALS } from "../src/game/projects";
+import { claimablePlots, isOwned, plotRect, styleAt, TERMINALS } from "../src/game/projects";
 import { createTutorialAirport } from "../src/game/starter";
 import type { GameState, WeatherKind } from "../src/game/types";
 import { runwayBlock, runwayDir, runwayStates } from "../src/game/weather";
@@ -273,7 +277,10 @@ assert(spot, "a Commuter Terminal fits in a fresh plot");
 const tpl = TERMINALS.find((t) => t.id === "commuter")!;
 const cash0 = L.money;
 const gates0 = getAnalysis(L).gates.length;
-assert(placeProject(L, "commuter", spot!.rot, spot!.x, spot!.y).ok && L.money === cash0 - tpl.cost, `terminal ordered for ${tpl.cost}`);
+assert(
+  placeProject(L, "commuter", spot!.rot, spot!.x, spot!.y, { name: "Skyline", style: "brick" }).ok && L.money === cash0 - tpl.cost,
+  `terminal ordered for ${tpl.cost}`,
+);
 assert(L.projects.length === 1 && getAnalysis(L).gates.length === gates0, "terminal not usable while it's being built");
 run(L, tpl.time - 30);
 assert(L.projects.length === 1, "still under construction just before opening");
@@ -281,7 +288,12 @@ run(L, 40);
 assert(L.projects.length === 0 && getAnalysis(L).gates.length === gates0 + 3, "all 3 gates open at once");
 assert(L.events.some((e) => e.text.startsWith("Ribbon cut!")) && L.celebrations.length === 1, "grand opening with a ribbon cutting");
 assert(L.landPermits === 1, "finishing a terminal earns a land permit");
-assert(L.labels.some((l) => l.text === "T1"), "the new terminal gets a sign");
+assert(L.terminals.length === 1 && L.terminals[0].code === "T1" && L.terminals[0].custom === "Skyline", "the new terminal keeps its name");
+assert(L.terminals[0].style === "brick" && styleAt(L, L.terminals[0].tiles[0]) === "brick", "and its style");
+assert(L.events.some((e) => e.text.includes("Skyline")), "grand opening uses the name");
+assert(styleTerminal(L, L.terminals[0].id, "futuristic").ok && styleAt(L, L.terminals[0].tiles[0]) === "futuristic", "terminal restyled");
+assert(renameTerminal(L, L.terminals[0].id, "Neon Hall").ok && L.terminals[0].custom === "Neon Hall", "terminal renamed");
+assert(setBaseStyle(L, "eco").ok && styleAt(L, 0) === "eco", "everything else gets the base style");
 
 const plot2 = claimablePlots(L)[0];
 assert(claimPlot(L, plot2).ok, "second plot claimed");
@@ -295,4 +307,12 @@ assert(projectBlocker(L, "mega", 0, spot2!.x, spot2!.y) === "Needs a Tier 4 airp
 
 const reloaded = deserialize(serialize(L));
 assert(reloaded && reloaded.owned.filter(Boolean).length === L.owned.filter(Boolean).length && reloaded.landPermits === L.landPermits, "land survives save/load");
+assert(reloaded && reloaded.terminals[0]?.custom === "Neon Hall" && reloaded.terminals[0].style === "futuristic" && reloaded.baseStyle === "eco", "names and styles survive save/load");
+
+// snow crews: no limit
+const crews = createTutorialAirport();
+crews.money = 1e9;
+let hired = 0;
+for (let i = 0; i < 12; i++) if (hireSnowCrew(crews).ok) hired++;
+assert(hired === 12 && crews.snowCrews === 12, "12 snow crews on payroll (no cap)");
 console.log("ALL GOOD (land)");

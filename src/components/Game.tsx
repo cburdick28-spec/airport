@@ -101,7 +101,7 @@ export default function Game() {
   useEffect(() => {
     store.init();
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
       if (e.code === "Space") {
         e.preventDefault();
         store.togglePause();

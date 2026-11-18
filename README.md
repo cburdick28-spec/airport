@@ -46,6 +46,10 @@ Hover any tile to see why it isn't working ("Needs TSA connection", "No runway a
 
 **Terminal megaprojects and land:** the map is split into 16 x 16 plots and you can only build on land you own. Every airport starts with one land permit. In the Terminals / Land tab, pick a pre-designed terminal (Commuter $35M / 1 day, Domestic $175M / 1.5 days, International $375M / 2.5 days, Mega $650M / 3.5 days), rotate it with R and place it. It comes with its own apron, gates, lounge, security, check-in and parking; hook the apron up to your taxiways. It's built as one project, opens all at once with a ribbon-cutting, and earns a new land permit so you can claim another plot next to your land. Bulldozing any part of a terminal under construction cancels the whole project for 75% back.
 
+**Names and styles:** give each terminal a name and one of five looks before you place it: Classic, Glass (tall glass under a canopy roof), Brick, Futuristic (dark floors, violet glass, glowing neon at night) or Eco (timber and planters). Rename or restyle any terminal later in the side panel, and set a style for every other building too. Names show on the 3D signs, the 2D map and the grand opening.
+
+**Snow crews:** hire as many as you like; each one keeps another runway clear in snow.
+
 **Money:** big buildings cost a lot to run, demand peaks in the morning and evening rush, and late flights drive travellers away. Take bank loans (5% a day) in the Staff tab, set fees Low / Normal / High (revenue vs demand), and watch the bankruptcy line in the side panel. Go too far into the red and the bank takes the airport.
 
 **Airline contracts:** airlines offer deals in the side panel (for example "6 regional flights in 8h"). Signed contracts send guaranteed flights and pay a bonus when finished. Leaving passengers behind costs a fine, and missing the deadline costs a penalty.

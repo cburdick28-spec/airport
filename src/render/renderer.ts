@@ -4,7 +4,7 @@ import { getAnalysis } from "@/game/analysis";
 import { BUILD, PLANES } from "@/game/constants";
 import { runHeadingDir, runProgress, runStart, runwayMarks, type RunwayMarks } from "@/game/runways";
 import { currentWeather, runwayStates, type RunwayState } from "@/game/weather";
-import { claimable, footprint, plotCols, plotOf, plotRect, plotRows, TERMINALS } from "@/game/projects";
+import { claimable, footprint, plotCols, plotOf, plotRect, plotRows, STYLES, styleAt, terminalName, TERMINALS } from "@/game/projects";
 import { projectBlocker } from "@/game/simulation";
 import { buildBlocker } from "@/game/simulation";
 import type { Flight, GameState, TileType } from "@/game/types";
@@ -92,13 +92,15 @@ function drawTiles(ctx: CanvasRenderingContext2D, s: GameState, T: number, marks
         case "floor":
         case "checkin":
         case "tsa":
-        case "customs":
-          ctx.fillStyle = C.floor;
+        case "customs": {
+          const st = STYLES[styleAt(s, y * s.w + x)];
+          ctx.fillStyle = st.floor2d;
           ctx.fillRect(px, py, T, T);
-          ctx.strokeStyle = C.floorLine;
+          ctx.strokeStyle = st.line2d;
           ctx.lineWidth = 1;
           ctx.strokeRect(px + 0.5, py + 0.5, T - 1, T - 1);
           break;
+        }
         case "parking": {
           ctx.fillStyle = C.parking;
           ctx.fillRect(px, py, T, T);
@@ -185,7 +187,7 @@ function drawTiles(ctx: CanvasRenderingContext2D, s: GameState, T: number, marks
           break;
         }
         case "gate": {
-          ctx.fillStyle = C.floor;
+          ctx.fillStyle = STYLES[styleAt(s, y * s.w + x)].floor2d;
           ctx.fillRect(px, py, T, T);
           ctx.fillStyle = C.gate[t.level];
           roundRect(ctx, px + T * 0.08, py + T * 0.08, T * 0.84, T * 0.84, T * 0.16);
@@ -614,15 +616,19 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, view: View) 
   drawCelebrations(ctx, s, T);
 
   // terminal name signs
-  if (s.labels.length > 0) {
+  if (s.labels.length > 0 || s.terminals.length > 0) {
     ctx.font = `800 ${Math.max(9, T * 0.62)}px system-ui, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    for (const l of s.labels) {
+    const signs = [
+      ...s.labels.map((l) => ({ ...l, bg: "rgba(15,23,42,0.82)" })),
+      ...s.terminals.map((t) => ({ x: t.x, y: t.y, text: terminalName(t), bg: STYLES[t.style].accent })),
+    ];
+    for (const l of signs) {
       const lx = l.x * T + T / 2;
       const ly = l.y * T + T / 2;
       const w = ctx.measureText(l.text).width + T * 0.5;
-      ctx.fillStyle = "rgba(15,23,42,0.82)";
+      ctx.fillStyle = l.bg;
       roundRect(ctx, lx - w / 2, ly - T * 0.45, w, T * 0.9, T * 0.25);
       ctx.fill();
       ctx.fillStyle = "#fff";

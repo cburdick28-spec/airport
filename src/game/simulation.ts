@@ -44,10 +44,10 @@ import {
   WALK_SPEED,
 } from "./constants";
 import { duration, money } from "./money";
-import { claimable, claimablePlots, footprint, initLand, isOwned, MERGEABLE, TERMINALS } from "./projects";
+import { claimable, claimablePlots, footprint, initLand, isOwned, MERGEABLE, STYLES, terminalName, TERMINALS } from "./projects";
 import { derivePath, distanceField, distFrom, fieldTo, taxiPath } from "./pathfinding";
 import { runHas, runHeadingDir, runIdx, runProgress, runStart } from "./runways";
-import type { Analysis, Contract, Flight, GameState, Passenger, PlaneClass, RunwayRun, StepKind, TileType } from "./types";
+import type { Analysis, Contract, Flight, GameState, Passenger, PlaneClass, RunwayRun, StepKind, TerminalStyle, TileType } from "./types";
 import { currentWeather, initWeather, runwayBlock, runwayDir, updateWeather, WEATHER } from "./weather";
 
 // ---------------------------------------------------------------------------
@@ -79,6 +79,8 @@ export function createEmptyState(money = 60_000_000): GameState {
     landPermits: 1,
     projects: [],
     celebrations: [],
+    terminals: [],
+    baseStyle: "classic",
     gateFlight: {},
     gateCooldown: {},
     gateNote: {},
@@ -230,6 +232,7 @@ export interface ActionResult {
 }
 
 const ON_FLOOR: TileType[] = ["checkin", "tsa", "customs", "gate"];
+const INDOOR_TYPES: TileType[] = ["floor", "checkin", "tsa", "customs", "gate"];
 
 export function buildBlocker(s: GameState, idx: number, type: Exclude<TileType, "empty">): string | null {
   const t = s.tiles[idx];
@@ -276,6 +279,8 @@ export function demolish(s: GameState, idx: number): ActionResult {
   for (let l = 0; l < t.level; l++) invested += def.cost[l] ?? 0;
   s.money += Math.round(invested * REFUND_RATE);
   s.tiles[idx] = { type: "empty", level: 1 };
+  if (s.terminals.length)
+    s.terminals = s.terminals.filter((term) => term.tiles.some((i) => INDOOR_TYPES.includes(s.tiles[i].type)));
   delete s.facilities[idx];
   delete s.gateCooldown[idx];
   delete s.gateNote[idx];
@@ -344,7 +349,7 @@ export function claimPlot(s: GameState, plot: number): ActionResult {
 }
 
 function nextTerminalLabel(s: GameState): string {
-  const used = new Set([...s.labels.map((l) => l.text), ...s.projects.map((p) => p.label)]);
+  const used = new Set([...s.labels.map((l) => l.text), ...s.projects.map((p) => p.label), ...s.terminals.map((t) => t.code)]);
   for (let n = 1; n < 100; n++) if (!used.has("T" + n)) return "T" + n;
   return "T";
 }
@@ -366,7 +371,22 @@ export function projectBlocker(s: GameState, templateId: string, rot: number, cx
   return null;
 }
 
-export function placeProject(s: GameState, templateId: string, rot: number, cx: number, cy: number): ActionResult {
+export interface ProjectOptions {
+  /** your name for the terminal (empty = automatic code like "T2") */
+  name?: string;
+  style?: TerminalStyle;
+}
+
+export const MAX_NAME = 22;
+
+export function placeProject(
+  s: GameState,
+  templateId: string,
+  rot: number,
+  cx: number,
+  cy: number,
+  opts: ProjectOptions = {},
+): ActionResult {
   const why = projectBlocker(s, templateId, rot, cx, cy);
   if (why) return { ok: false, msg: why };
   const t = TERMINALS.find((x) => x.id === templateId);
@@ -383,9 +403,12 @@ export function placeProject(s: GameState, templateId: string, rot: number, cx: 
     tiles.push(idx);
   }
   const label = nextTerminalLabel(s);
-  s.projects.push({ id, template: t.id, name: t.name, label, tiles, start: s.time, done, cost: t.cost, x: cx, y: cy });
+  const custom = (opts.name ?? "").trim().slice(0, MAX_NAME);
+  const style = opts.style && STYLES[opts.style] ? opts.style : "classic";
+  s.projects.push({ id, template: t.id, name: t.name, label, custom, style, tiles, start: s.time, done, cost: t.cost, x: cx, y: cy });
   s.version++;
-  return { ok: true, msg: `${label} ${t.name} under construction: grand opening in ${duration(t.time)}` };
+  const display = custom || `${label} ${t.name}`;
+  return { ok: true, msg: `${display} under construction: grand opening in ${duration(t.time)}` };
 }
 
 export function cancelProject(s: GameState, id: number): ActionResult {
@@ -404,15 +427,50 @@ function openProject(s: GameState, id: number) {
   const pr = s.projects.find((p) => p.id === id);
   if (!pr) return;
   s.projects = s.projects.filter((p) => p.id !== id);
-  s.labels.push({ x: pr.x, y: pr.y, text: pr.label });
-  s.celebrations.push({ x: pr.x, y: pr.y, time: s.time, text: pr.label });
+  const term = {
+    id: pr.id,
+    code: pr.label,
+    custom: pr.custom ?? "",
+    template: pr.template,
+    style: pr.style ?? "classic",
+    tiles: pr.tiles,
+    x: pr.x,
+    y: pr.y,
+  };
+  s.terminals.push(term);
+  const display = terminalName(term);
+  s.celebrations.push({ x: pr.x, y: pr.y, time: s.time, text: display });
   s.version++;
+  const what = pr.custom ? `${display} (${pr.name})` : `${display} ${pr.name}`;
   if (claimablePlots(s).length > 0) {
     s.landPermits++;
-    addEvent(s, `Ribbon cut! ${pr.label} ${pr.name} is open. You earned a land permit: claim a new plot.`, "good");
+    addEvent(s, `Ribbon cut! ${what} is open. You earned a land permit: claim a new plot.`, "good");
   } else {
-    addEvent(s, `Ribbon cut! ${pr.label} ${pr.name} is open.`, "good");
+    addEvent(s, `Ribbon cut! ${what} is open.`, "good");
   }
+}
+
+export function renameTerminal(s: GameState, id: number, name: string): ActionResult {
+  const t = s.terminals.find((x) => x.id === id) ?? s.projects.find((x) => x.id === id);
+  if (!t) return { ok: false, msg: "" };
+  t.custom = name.trim().slice(0, MAX_NAME);
+  s.version++;
+  return { ok: true, msg: t.custom ? `Renamed to ${t.custom}` : "Name cleared" };
+}
+
+export function styleTerminal(s: GameState, id: number, style: TerminalStyle): ActionResult {
+  const t = s.terminals.find((x) => x.id === id) ?? s.projects.find((x) => x.id === id);
+  if (!t || !STYLES[style]) return { ok: false, msg: "" };
+  t.style = style;
+  s.version++;
+  return { ok: true, msg: `${STYLES[style].name} style` };
+}
+
+export function setBaseStyle(s: GameState, style: TerminalStyle): ActionResult {
+  if (!STYLES[style]) return { ok: false, msg: "" };
+  s.baseStyle = style;
+  s.version++;
+  return { ok: true, msg: `Other buildings: ${STYLES[style].name} style` };
 }
 
 /** finish every construction site right now (tests and pre-built layouts) */
@@ -442,7 +500,6 @@ export function fireDriver(s: GameState): ActionResult {
 }
 
 export function hireSnowCrew(s: GameState): ActionResult {
-  if (s.snowCrews >= 6) return { ok: false, msg: "Max 6 snow crews" };
   if (s.money < SNOW_CREW_HIRE) return { ok: false, msg: "Not enough money" };
   spend(s, SNOW_CREW_HIRE);
   s.snowCrews++;
