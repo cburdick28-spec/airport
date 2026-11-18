@@ -40,6 +40,8 @@ interface SaveData {
   otp?: number;
   diversions?: number;
   scenarioId?: string;
+  /** 1000 once prices moved to real dollars; missing in older saves */
+  moneyScale?: number;
   /** [tile, type, level, start, done, cost] */
   sites?: [number, number, number, number, number, number][];
 }
@@ -76,6 +78,7 @@ export function serialize(s: GameState): string {
     otp: s.otp,
     diversions: s.diversions,
     scenarioId: s.scenarioId,
+    moneyScale: 1000,
     sites: s.sites.flatMap((i) => {
       const site = s.tiles[i].site;
       return site ? [[i, TYPES.indexOf(site.type), site.level, site.start, site.done, site.cost] as [number, number, number, number, number, number]] : [];
@@ -88,7 +91,9 @@ export function deserialize(json: string): GameState | null {
   try {
     const d = JSON.parse(json) as SaveData;
     if (d.v !== 1 || !Array.isArray(d.tiles)) return null;
-    const s = createEmptyState(d.money);
+    // saves from before real-dollar prices: convert the money to the new scale
+    const k = d.moneyScale ? 1 : 1000;
+    const s = createEmptyState(d.money * k);
     if (d.w !== s.w || d.h !== s.h || d.tiles.length !== s.tiles.length) return null;
     s.tiles = d.tiles.map((n) => ({ type: TYPES[n >> 3] ?? "empty", level: Math.max(1, n & 7) }));
     s.time = d.time;
@@ -101,8 +106,15 @@ export function deserialize(json: string): GameState | null {
     s.missedFlights = d.missedFlights ?? 0;
     s.name = d.name ?? "My Airport";
     s.labels = d.labels ?? [];
-    s.contracts = d.contracts ?? [];
-    s.contractOffers = d.contractOffers ?? [];
+    const scaleContract = (c: Contract): Contract => ({
+      ...c,
+      bonusPerFlight: c.bonusPerFlight * k,
+      reward: c.reward * k,
+      penalty: c.penalty * k,
+      latePenalty: c.latePenalty * k,
+    });
+    s.contracts = (d.contracts ?? []).map(scaleContract);
+    s.contractOffers = (d.contractOffers ?? []).map(scaleContract);
     s.nextOffer = d.nextOffer ?? s.time;
     s.contractsCompleted = d.contractsCompleted ?? 0;
     s.nextId = Math.max(s.nextId, d.nextId ?? 1);
@@ -110,7 +122,7 @@ export function deserialize(json: string): GameState | null {
     s.snowCrews = d.snowCrews ?? 0;
     s.calmUntil = d.calmUntil ?? 0;
     s.snowCover = d.snowCover ?? 0;
-    s.loan = d.loan ?? 0;
+    s.loan = (d.loan ?? 0) * k;
     s.fees = d.fees ?? 1;
     s.otp = d.otp ?? 90;
     s.diversions = d.diversions ?? 0;

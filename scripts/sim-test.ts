@@ -234,3 +234,10 @@ const blank = createEmptyState();
 resetWeather(blank);
 assert(getAnalysis(blank).classStatus[0].reason === "Build a Parking Lot", "blank airport explains what is missing");
 console.log("ALL GOOD");
+
+// old saves (before real-dollar prices) get their money converted
+const old = JSON.parse(serialize(createTutorialAirport()));
+old.money = 41000;
+delete old.moneyScale;
+const migrated = deserialize(JSON.stringify(old));
+assert(migrated && migrated.money === 41_000_000, "old saves are converted to real dollars");
