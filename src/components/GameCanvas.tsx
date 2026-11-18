@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { GRID_H, GRID_W } from "@/game/constants";
+import { plotRect } from "@/game/projects";
 import { render } from "@/render/renderer";
 import { startLoop } from "./loop";
 import { store } from "./store";
@@ -46,11 +47,20 @@ export default function GameCanvas({ onPointer }: Props) {
       let y0 = Infinity;
       let y1 = -Infinity;
       s.tiles.forEach((t, i) => {
-        if (t.type === "empty") return;
+        if (t.type === "empty" && !t.site) return;
         x0 = Math.min(x0, i % s.w);
         x1 = Math.max(x1, i % s.w);
         y0 = Math.min(y0, Math.floor(i / s.w));
         y1 = Math.max(y1, Math.floor(i / s.w));
+      });
+      // your land is where you can build, so keep all of it on screen
+      s.owned.forEach((own, p) => {
+        if (!own) return;
+        const r = plotRect(s, p);
+        x0 = Math.min(x0, r.x + 4);
+        y0 = Math.min(y0, r.y + 4);
+        x1 = Math.max(x1, r.x + r.w - 5);
+        y1 = Math.max(y1, r.y + r.h - 5);
       });
       if (!isFinite(x0)) {
         view.x = 0;

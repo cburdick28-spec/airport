@@ -5,8 +5,11 @@ import { deserialize, serialize } from "../src/game/save";
 import { SCENARIOS } from "../src/game/scenarios";
 import {
   build,
+  claimPlot,
   createEmptyState,
   demolish,
+  placeProject,
+  projectBlocker,
   finishAllConstruction,
   hourlyUpkeep,
   repayLoan,
@@ -16,6 +19,7 @@ import {
   takeLoan,
   upgrade,
 } from "../src/game/simulation";
+import { claimablePlots, isOwned, plotRect, TERMINALS } from "../src/game/projects";
 import { createTutorialAirport } from "../src/game/starter";
 import type { GameState, WeatherKind } from "../src/game/types";
 import { runwayBlock, runwayDir, runwayStates } from "../src/game/weather";
@@ -104,7 +108,7 @@ assert(s.flightsHandled > fl0 + 2, "traffic recovers after the storm");
 // ---------------------------------------------------------------------------
 s.money = 500_000_000;
 let towerAt = -1;
-for (let i = 0; i < s.tiles.length && towerAt < 0; i++) if (s.tiles[i].type === "empty") towerAt = i;
+for (let i = 0; i < s.tiles.length && towerAt < 0; i++) if (s.tiles[i].type === "empty" && isOwned(s, i)) towerAt = i;
 assert(build(s, towerAt, "tower").ok && s.tiles[towerAt].type === "empty" && s.tiles[towerAt].site, "control tower construction starts");
 assert(getAnalysis(s).tower === 0, "an unfinished tower does nothing yet");
 run(s, BUILD.tower.time[0] + 2);
@@ -125,7 +129,7 @@ assert(runwayBlock(s, getAnalysis(s), run0, 0, true) === null, "storm radar (tow
 // cancelling construction refunds most of the money
 const cash = s.money;
 let lot = -1;
-for (let i = s.tiles.length - 1; i >= 0 && lot < 0; i--) if (s.tiles[i].type === "empty" && !s.tiles[i].site) lot = i;
+for (let i = s.tiles.length - 1; i >= 0 && lot < 0; i--) if (s.tiles[i].type === "empty" && !s.tiles[i].site && isOwned(s, i)) lot = i;
 assert(build(s, lot, "gate").ok && s.money === cash - BUILD.gate.cost[0], "gate paid for up front");
 assert(!build(s, lot, "gate").ok, "can't build on a construction site");
 assert(demolish(s, lot).ok && !s.tiles[lot].site && s.money === cash - BUILD.gate.cost[0] * 0.25, "cancel refunds 75%");
@@ -241,3 +245,54 @@ old.money = 41000;
 delete old.moneyScale;
 const migrated = deserialize(JSON.stringify(old));
 assert(migrated && migrated.money === 41_000_000, "old saves are converted to real dollars");
+
+// ---------------------------------------------------------------------------
+// land plots and terminal megaprojects
+// ---------------------------------------------------------------------------
+const L = createTutorialAirport();
+calm(L);
+L.money = 2e9;
+assert(L.landPermits === 1 && claimablePlots(L).length > 0, "start with one land permit and plots to claim");
+const plot = claimablePlots(L)[0];
+const pr0 = plotRect(L, plot);
+const outside = (pr0.y + 8) * L.w + pr0.x + 8;
+assert(!build(L, outside, "parking").ok, "can't build on land you don't own");
+assert(claimPlot(L, plot).ok && L.landPermits === 0 && build(L, outside, "parking").ok, "claimed plot is buildable");
+demolish(L, outside);
+
+/** find a spot for a terminal inside a plot */
+function spotFor(s: GameState, id: string, p: number) {
+  const r = plotRect(s, p);
+  for (let rot = 0; rot < 4; rot++)
+    for (let y = r.y; y < r.y + r.h; y++)
+      for (let x = r.x; x < r.x + r.w; x++) if (!projectBlocker(s, id, rot, x, y)) return { x, y, rot };
+  return null;
+}
+const spot = spotFor(L, "commuter", plot);
+assert(spot, "a Commuter Terminal fits in a fresh plot");
+const tpl = TERMINALS.find((t) => t.id === "commuter")!;
+const cash0 = L.money;
+const gates0 = getAnalysis(L).gates.length;
+assert(placeProject(L, "commuter", spot!.rot, spot!.x, spot!.y).ok && L.money === cash0 - tpl.cost, `terminal ordered for ${tpl.cost}`);
+assert(L.projects.length === 1 && getAnalysis(L).gates.length === gates0, "terminal not usable while it's being built");
+run(L, tpl.time - 30);
+assert(L.projects.length === 1, "still under construction just before opening");
+run(L, 40);
+assert(L.projects.length === 0 && getAnalysis(L).gates.length === gates0 + 3, "all 3 gates open at once");
+assert(L.events.some((e) => e.text.startsWith("Ribbon cut!")) && L.celebrations.length === 1, "grand opening with a ribbon cutting");
+assert(L.landPermits === 1, "finishing a terminal earns a land permit");
+assert(L.labels.some((l) => l.text === "T1"), "the new terminal gets a sign");
+
+const plot2 = claimablePlots(L)[0];
+assert(claimPlot(L, plot2).ok, "second plot claimed");
+const spot2 = spotFor(L, "commuter", plot2);
+const cash1 = L.money;
+assert(spot2 && placeProject(L, "commuter", spot2.rot, spot2.x, spot2.y).ok, "second terminal ordered");
+const anyTile = L.projects[0].tiles[3];
+assert(demolish(L, anyTile).ok && L.projects.length === 0 && L.sites.length === 0, "bulldozing a terminal site cancels the whole project");
+assert(Math.abs(L.money - (cash1 - tpl.cost * 0.25)) < 1, "cancelled terminal refunds 75%");
+assert(projectBlocker(L, "mega", 0, spot2!.x, spot2!.y) === "Needs a Tier 4 airport", "big terminals need a higher tier");
+
+const reloaded = deserialize(serialize(L));
+assert(reloaded && reloaded.owned.filter(Boolean).length === L.owned.filter(Boolean).length && reloaded.landPermits === L.landPermits, "land survives save/load");
+console.log("ALL GOOD (land)");

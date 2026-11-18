@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { tileInfo } from "@/game/analysis";
 import { BUILD } from "@/game/constants";
-import { buildBlocker } from "@/game/simulation";
+import { buildBlocker, projectBlocker } from "@/game/simulation";
+import { claimable, claimablePlots, isOwned, plotOf, TERMINALS } from "@/game/projects";
 import AirportPicker from "./AirportPicker";
 import BuildMenu from "./BuildMenu";
 import { duration, money } from "./format";
@@ -32,7 +33,35 @@ function Tooltip({ pointer }: { pointer: Pointer }) {
     const why = buildBlocker(s, pointer.idx, tool.type);
     title = `Build ${def.name} · ${money(def.cost[0])} · ${duration(def.time[0])}`;
     rows.push(why ? { text: why, tone: "text-rose-300" } : { text: def.desc, tone: "text-slate-300" });
+  } else if (tool?.kind === "project") {
+    const t = TERMINALS.find((x) => x.id === tool.id);
+    if (!t) return null;
+    const why = projectBlocker(s, t.id, tool.rot, pointer.idx % s.w, Math.floor(pointer.idx / s.w));
+    title = `${t.name} · ${money(t.cost)} · ${duration(t.time)}`;
+    rows.push(why ? { text: why, tone: "text-rose-300" } : { text: "Click to start construction. R rotates.", tone: "text-emerald-300" });
+    rows.push({ text: t.blurb, tone: "text-slate-300" });
+    rows.push({ text: "Hook the apron up to your taxiways. Opens all at once and earns a land permit.", tone: "text-slate-400" });
+  } else if (tool?.kind === "claim") {
+    const p = plotOf(s, pointer.idx);
+    title = s.owned[p] ? "Your land" : "Claim this plot";
+    rows.push(
+      s.owned[p]
+        ? { text: "You already own this plot", tone: "text-slate-300" }
+        : claimable(s, p)
+          ? { text: `Click to spend a land permit (${s.landPermits} left)`, tone: "text-emerald-300" }
+          : { text: "Must border land you already own", tone: "text-rose-300" },
+    );
   } else if (!info) {
+    if (s.owned.length && !isOwned(s, pointer.idx))
+      return (
+        <div
+          className="pointer-events-none fixed z-40 rounded-md border border-slate-600 bg-slate-900/95 px-3 py-2 text-xs shadow-xl"
+          style={{ left: pointer.x + 16, top: pointer.y + 16 }}
+        >
+          <div className="font-semibold text-white">Land you don&apos;t own</div>
+          <div className="text-slate-300">Finish a terminal project to earn a land permit</div>
+        </div>
+      );
     return null;
   } else {
     if (tool?.kind === "bulldoze") rows.push({ text: "Click to demolish (50% refund)", tone: "text-rose-300" });
@@ -80,6 +109,7 @@ export default function Game() {
       else if (e.key === "Escape") store.setTool(null);
       else if (e.key === "b" || e.key === "B") store.setTool({ kind: "bulldoze" });
       else if (e.key === "u" || e.key === "U") store.setTool({ kind: "upgrade" });
+      else if (e.key === "r" || e.key === "R") store.rotate();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -108,8 +138,18 @@ export default function Game() {
               {tool.kind === "build" && `Building: ${BUILD[tool.type].name}${BUILD[tool.type].paint ? " (drag to paint)" : ""}`}
               {tool.kind === "bulldoze" && "Bulldozer: click or drag"}
               {tool.kind === "upgrade" && "Upgrade: click a building"}
+              {tool.kind === "project" && `Placing: ${TERMINALS.find((t) => t.id === tool.id)?.name} · R to rotate`}
+              {tool.kind === "claim" && "Claim a plot: click a green plot"}
               <span className="text-slate-400"> · Esc to stop</span>
             </div>
+          )}
+          {s.landPermits > 0 && tool?.kind !== "claim" && claimablePlots(s).length > 0 && (
+            <button
+              onClick={() => store.setTool({ kind: "claim" })}
+              className="absolute right-4 top-4 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white shadow-lg hover:bg-emerald-500"
+            >
+              Land permit ready: claim a new plot ({s.landPermits})
+            </button>
           )}
           {flash && (
             <div

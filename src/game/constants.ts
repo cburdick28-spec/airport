@@ -100,7 +100,7 @@ export const HOLD_LIMIT = 75;
 /** a departure counts as on time if it takes off within this many minutes of schedule */
 export const ON_TIME_GRACE = 15;
 
-export type Category = "landside" | "terminal" | "airside" | "staff";
+export type Category = "landside" | "terminal" | "airside" | "projects" | "staff";
 
 export interface BuildDef {
   name: string;

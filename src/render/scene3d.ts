@@ -11,7 +11,9 @@ import { runHeadingDir, runIdx, runProgress, runStart, runwayMarks } from "@/gam
 import { buildBlocker } from "@/game/simulation";
 import type { Analysis, Flight, GameState, TileType, WeatherKind } from "@/game/types";
 import { currentWeather, runwayStates } from "@/game/weather";
-import type { Tool } from "./renderer";
+import { claimable, footprint, plotCols, plotOf, plotRect, plotRows, TERMINALS } from "@/game/projects";
+import { projectBlocker } from "@/game/simulation";
+import { PREVIEW_COLOR, type Tool } from "./renderer";
 
 export interface View3D {
   hover: number;
@@ -24,6 +26,7 @@ const GATE_COLORS = ["", "#16a34a", "#d97706", "#dc2626", "#db2777"];
 const GATE_LETTER = ["", "S", "M", "L", "J"];
 const TAIL_COLORS = ["#16a34a", "#2563eb", "#b91c1c", "#7c3aed", "#0f172a"];
 const RAIN_N = 2600;
+const CONFETTI_N = 260;
 const SNOW_N = 2600;
 const GLOOM: Record<WeatherKind, number> = { clear: 0, cloudy: 0.25, rain: 0.45, storm: 0.72, fog: 0.35, snow: 0.4 };
 /** fog start and end as multiples of the camera's distance from what it looks at */
@@ -163,6 +166,13 @@ export class Scene3D {
   private statusGroup = new THREE.Group();
   private statusSig = "";
   private focus = new THREE.Vector3();
+  // land, terminal previews, grand openings
+  private landGroup = new THREE.Group();
+  private landSig = "";
+  private ghostGroup = new THREE.Group();
+  private ghostSig = "";
+  private confetti: THREE.InstancedMesh;
+  private confettiSign: THREE.Sprite | null = null;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -213,7 +223,17 @@ export class Scene3D {
 
     this.makeMaterials();
     this.buildWorld(cx, cz);
-    this.scene.add(this.staticGroup, this.labelGroup, this.statusGroup);
+    this.scene.add(this.staticGroup, this.labelGroup, this.statusGroup, this.landGroup, this.ghostGroup);
+    this.confetti = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(0.12, 0.02, 0.07),
+      new THREE.MeshBasicMaterial({ toneMapped: false }),
+      CONFETTI_N,
+    );
+    const palette = ["#ef4444", "#f59e0b", "#22c55e", "#3b82f6", "#a855f7", "#ec4899", "#facc15"].map((c) => new THREE.Color(c));
+    for (let i = 0; i < CONFETTI_N; i++) this.confetti.setColorAt(i, palette[i % palette.length]);
+    this.confetti.count = 0;
+    this.confetti.frustumCulled = false;
+    this.scene.add(this.confetti);
     this.focus.set(cx, 0, cz);
 
     // rain streaks and snowflakes live in a box that follows the camera target
@@ -1082,7 +1102,7 @@ export class Scene3D {
     let z0 = Infinity;
     let z1 = -Infinity;
     for (let i = 0; i < s.tiles.length; i++) {
-      if (s.tiles[i].type === "empty") continue;
+      if (s.tiles[i].type === "empty" && !s.tiles[i].site) continue;
       const x = i % s.w;
       const z = Math.floor(i / s.w);
       x0 = Math.min(x0, x);
@@ -1155,16 +1175,20 @@ export class Scene3D {
     this.updateBuses(s);
     this.updatePassengers(s);
     this.updateBadges(s, a);
+    this.updateLand(s, view);
+    this.updateGhost(s, view);
+    this.updateCelebrations(s);
 
     // hover + tool preview
     const hm = this.hoverMesh.material as THREE.MeshBasicMaterial;
-    if (view.hover >= 0) {
+    if (view.hover >= 0 && view.tool?.kind !== "project") {
       this.hoverMesh.visible = true;
       this.hoverMesh.position.set(view.hover % s.w, 0.16, Math.floor(view.hover / s.w));
       let color = "#ffffff";
       if (view.tool?.kind === "build") color = buildBlocker(s, view.hover, view.tool.type) ? "#ef4444" : "#22c55e";
       else if (view.tool?.kind === "bulldoze") color = "#ef4444";
       else if (view.tool?.kind === "upgrade") color = "#a855f7";
+      else if (view.tool?.kind === "claim") color = "#22c55e";
       hm.color.set(color);
       const g = a.gateByIdx.get(view.hover);
       this.standMesh.visible = !!g && g.stand >= 0;
@@ -1175,6 +1199,112 @@ export class Scene3D {
     }
 
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /** dark wash over land you don't own; green for plots you can claim */
+  private updateLand(s: GameState, view: View3D) {
+    const claiming = view.tool?.kind === "claim";
+    const hoverPlot = claiming && view.hover >= 0 ? plotOf(s, view.hover) : -1;
+    const sig = s.owned.map((o) => (o ? 1 : 0)).join("") + (claiming ? "c" + hoverPlot : "") + s.landPermits;
+    if (sig === this.landSig) return;
+    this.landSig = sig;
+    for (const c of [...this.landGroup.children]) {
+      this.landGroup.remove(c);
+      if (c instanceof THREE.Sprite) c.material.dispose();
+    }
+    const dark = new THREE.MeshBasicMaterial({ color: "#0f172a", transparent: true, opacity: 0.32, depthWrite: false });
+    const green = new THREE.MeshBasicMaterial({ color: "#22c55e", transparent: true, opacity: 0.22, depthWrite: false });
+    const greenHot = new THREE.MeshBasicMaterial({ color: "#22c55e", transparent: true, opacity: 0.45, depthWrite: false });
+    for (let p = 0; p < plotCols(s) * plotRows(s); p++) {
+      if (s.owned[p]) continue;
+      const r = plotRect(s, p);
+      const can = claiming && claimable(s, p);
+      const m = new THREE.Mesh(this.box, can ? (p === hoverPlot ? greenHot : green) : dark);
+      m.position.set(r.x + r.w / 2 - 0.5, 0.02, r.y + r.h / 2 - 0.5);
+      m.scale.set(r.w, 0.01, r.h);
+      m.renderOrder = 2;
+      this.landGroup.add(m);
+      if (can) {
+        const sign = this.sprite("CLAIM", "#16a34a");
+        sign.position.set(r.x + r.w / 2 - 0.5, 2, r.y + r.h / 2 - 0.5);
+        sign.scale.set(3, 1.5, 1);
+        this.landGroup.add(sign);
+      }
+    }
+  }
+
+  /** see-through preview of a terminal before you place it */
+  private updateGhost(s: GameState, view: View3D) {
+    const tool = view.tool;
+    const on = tool?.kind === "project" && view.hover >= 0;
+    const cx = view.hover % s.w;
+    const cy = Math.floor(view.hover / s.w);
+    const bad = on && tool?.kind === "project" ? projectBlocker(s, tool.id, tool.rot, cx, cy) : null;
+    const sig = on && tool?.kind === "project" ? `${tool.id}:${tool.rot}:${view.hover}:${bad ? 1 : 0}` : "";
+    if (sig === this.ghostSig) return;
+    this.ghostSig = sig;
+    for (const c of [...this.ghostGroup.children]) this.ghostGroup.remove(c);
+    if (!on || tool?.kind !== "project") return;
+    const t = TERMINALS.find((x) => x.id === tool.id);
+    if (!t) return;
+    const mats = new Map<string, THREE.MeshBasicMaterial>();
+    const edge = new THREE.MeshBasicMaterial({ color: bad ? "#ef4444" : "#22c55e", transparent: true, opacity: 0.55, depthWrite: false });
+    for (const f of footprint(t, tool.rot, cx, cy)) {
+      let m = mats.get(f.type);
+      if (!m) {
+        m = new THREE.MeshBasicMaterial({ color: PREVIEW_COLOR[f.type] ?? "#ffffff", transparent: true, opacity: 0.6, depthWrite: false });
+        mats.set(f.type, m);
+      }
+      const h = f.type === "gate" ? 0.9 : f.type === "tsa" || f.type === "customs" || f.type === "checkin" ? 0.5 : 0.12;
+      const mesh = new THREE.Mesh(this.box, m);
+      mesh.position.set(f.x, h / 2 + 0.02, f.y);
+      mesh.scale.set(0.96, h, 0.96);
+      this.ghostGroup.add(mesh);
+      const base = new THREE.Mesh(this.box, edge);
+      base.position.set(f.x, 0.03, f.y);
+      base.scale.set(1, 0.02, 1);
+      this.ghostGroup.add(base);
+    }
+  }
+
+  /** confetti bursts and a banner over a freshly opened terminal */
+  private updateCelebrations(s: GameState) {
+    const active = s.celebrations.filter((c) => s.time - c.time < 60);
+    if (active.length === 0) {
+      this.confetti.count = 0;
+      if (this.confettiSign) this.confettiSign.visible = false;
+      return;
+    }
+    const c = active[active.length - 1];
+    const age = s.time - c.time;
+    const t = ((age % 12) / 12) * 3; // a fresh burst every 12 game minutes
+    const m = this.tmpM;
+    const q = new THREE.Quaternion();
+    const e = new THREE.Euler();
+    for (let i = 0; i < CONFETTI_N; i++) {
+      const a = i * 2.39996;
+      const sp = 1.5 + ((i * 37) % 10) * 0.35;
+      const up = 5 + ((i * 53) % 10) * 0.4;
+      const y = Math.max(0.05, 1.5 + up * t - 3.2 * t * t);
+      e.set(t * 6 + i, t * 4 + i * 0.5, 0);
+      q.setFromEuler(e);
+      m.compose(new THREE.Vector3(c.x + Math.cos(a) * sp * t, y, c.y + Math.sin(a) * sp * t), q, new THREE.Vector3(1, 1, 1));
+      this.confetti.setMatrixAt(i, m);
+    }
+    this.confetti.count = CONFETTI_N;
+    this.confetti.instanceMatrix.needsUpdate = true;
+    if (!this.confettiSign) {
+      this.confettiSign = this.sprite("OPEN!", "#dc2626");
+      this.scene.add(this.confettiSign);
+    }
+    const tex = this.texture(`${c.text} OPEN!`, "#dc2626");
+    if (this.confettiSign.material.map !== tex) {
+      this.confettiSign.material.map = tex;
+      this.confettiSign.material.needsUpdate = true;
+    }
+    this.confettiSign.visible = true;
+    this.confettiSign.position.set(c.x, 4.2 + Math.sin(age) * 0.15, c.y);
+    this.confettiSign.scale.set(4, 2, 1);
   }
 
   dispose() {

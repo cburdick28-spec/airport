@@ -3,6 +3,7 @@
 
 import { MAX_STEP } from "./constants";
 import { recenter, placeNear } from "./layout";
+import { initLand } from "./projects";
 import { addEvent, createEmptyState, resetWeather, step } from "./simulation";
 import { createBlankAirport, createTutorialAirport } from "./starter";
 import type { Climate, GameState, TileType } from "./types";
@@ -50,6 +51,7 @@ interface Setup {
 function finish(s: GameState, o: Setup): GameState {
   placeNear(s, o.tower[0], o.tower[1], "tower", o.tower[2]);
   recenter(s);
+  initLand(s);
   s.scenarioId = o.id;
   s.name = o.name;
   s.tier = o.tier;

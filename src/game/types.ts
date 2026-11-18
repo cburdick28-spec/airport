@@ -30,6 +30,30 @@ export interface Construction {
   done: number;
   /** what was paid, for refunds */
   cost: number;
+  /** part of a terminal megaproject */
+  projectId?: number;
+}
+
+export interface Project {
+  id: number;
+  template: string;
+  name: string;
+  /** short sign shown over the terminal, e.g. "T2" */
+  label: string;
+  tiles: number[];
+  start: number;
+  done: number;
+  cost: number;
+  /** centre, in tiles */
+  x: number;
+  y: number;
+}
+
+export interface Celebration {
+  x: number;
+  y: number;
+  time: number;
+  text: string;
 }
 
 /** 0 regional, 1 narrow-body, 2 wide-body, 3 super jumbo, 4 supersonic */
@@ -225,6 +249,14 @@ export interface GameState {
   contractsCompleted: number;
   /** tiles with construction in progress */
   sites: number[];
+  /** which 16 x 16 plots of land you own */
+  owned: boolean[];
+  /** plots you may still claim */
+  landPermits: number;
+  /** terminal megaprojects under construction */
+  projects: Project[];
+  /** recent grand openings (for confetti) */
+  celebrations: Celebration[];
   // ---- weather ----
   climate: Climate;
   /** current spell first, then the coming ones */

@@ -5,7 +5,9 @@ import { BUILD } from "@/game/constants";
 import { clearSave, loadGame, saveGame } from "@/game/save";
 import {
   build,
+  claimPlot,
   demolish,
+  placeProject,
   fireDriver,
   fireSnowCrew,
   hireDriver,
@@ -18,6 +20,7 @@ import {
   upgrade,
   type ActionResult,
 } from "@/game/simulation";
+import { plotOf } from "@/game/projects";
 import { SCENARIOS } from "@/game/scenarios";
 import { createTutorialAirport } from "@/game/starter";
 import type { GameState } from "@/game/types";
@@ -120,6 +123,12 @@ export const store = {
     store.paused = !store.paused;
     store.bump();
   },
+  rotate() {
+    if (store.tool?.kind === "project") {
+      store.tool = { ...store.tool, rot: (store.tool.rot + 1) % 4 };
+      store.bump();
+    }
+  },
   setTool(t: Tool) {
     store.tool = t;
     store.bump();
@@ -137,6 +146,14 @@ export const store = {
       if (dragging && (res.msg === "Already built here" || res.msg === "Under construction")) return;
     } else if (tool.kind === "bulldoze") {
       res = demolish(s, idx);
+    } else if (tool.kind === "project") {
+      if (dragging) return;
+      res = placeProject(s, tool.id, tool.rot, idx % s.w, Math.floor(idx / s.w));
+      if (res.ok) store.tool = null;
+    } else if (tool.kind === "claim") {
+      if (dragging) return;
+      res = claimPlot(s, plotOf(s, idx));
+      if (res.ok) store.tool = null;
     } else if (!dragging) {
       res = upgrade(s, idx);
     }

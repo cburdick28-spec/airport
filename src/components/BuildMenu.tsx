@@ -6,6 +6,7 @@ import {
   DRIVER_HIRE_COST,
   DRIVER_WAGE,
   FEES,
+  GATE_SIZE,
   LOAN_RATE,
   LOAN_STEP,
   MARKETING_COST,
@@ -14,6 +15,7 @@ import {
   type Category,
 } from "@/game/constants";
 import { maxLoan } from "@/game/simulation";
+import { TERMINALS, templateCounts } from "@/game/projects";
 import type { GameState, TileType } from "@/game/types";
 import { duration, money } from "./format";
 import { store } from "./store";
@@ -22,6 +24,7 @@ const TABS: { id: Category; label: string }[] = [
   { id: "landside", label: "Landside" },
   { id: "terminal", label: "Terminal / TSA" },
   { id: "airside", label: "Airside / Gates" },
+  { id: "projects", label: "Terminals / Land" },
   { id: "staff", label: "Staff / Upgrades" },
 ];
 
@@ -119,7 +122,44 @@ export default function BuildMenu({ s }: { s: GameState }) {
       </div>
 
       <div className="flex gap-2 overflow-x-auto pb-1">
+        {tab === "projects" && (
+          <>
+            {TERMINALS.map((t) => {
+              const n = templateCounts(t);
+              const gates = n.gates
+                .map((c, lvl) => (c ? `${c} ${GATE_SIZE[lvl]}` : ""))
+                .filter(Boolean)
+                .join(" + ");
+              const locked = s.tier < t.tier;
+              return (
+                <Item
+                  key={t.id}
+                  active={tool?.kind === "project" && tool.id === t.id}
+                  swatch={locked ? "bg-slate-600" : "bg-rose-500"}
+                  title={t.name}
+                  sub={locked ? `Needs Tier ${t.tier}` : `${money(t.cost)} · ${duration(t.time)}`}
+                  hint={`${t.blurb} ${gates} gates, ${n.tsa} security lanes, ${n.desks} check-in desks${n.customs ? `, ${n.customs} customs` : ""}, apron and parking. Opens all at once and earns a land permit. R rotates.`}
+                  disabled={locked || s.money < t.cost}
+                  onClick={() => store.setTool({ kind: "project", id: t.id, rot: tool?.kind === "project" ? tool.rot : 0 })}
+                />
+              );
+            })}
+            <Item
+              swatch="bg-emerald-500"
+              title={`Claim Plot (${s.landPermits})`}
+              sub={`${s.owned.filter(Boolean).length}/${s.owned.length} plots owned`}
+              hint="Spend a land permit on a 16 x 16 plot next to your land. Every finished terminal earns a permit."
+              active={tool?.kind === "claim"}
+              disabled={s.landPermits === 0}
+              onClick={() => store.setTool({ kind: "claim" })}
+            />
+            {tool?.kind === "project" && (
+              <Item swatch="bg-slate-400" title="Rotate (R)" sub={`Facing ${["up", "right", "down", "left"][tool.rot]}`} hint="Turn the terminal before placing it" onClick={() => store.rotate()} />
+            )}
+          </>
+        )}
         {tab !== "staff" &&
+          tab !== "projects" &&
           types.map((t) => {
             const def = BUILD[t];
             return (

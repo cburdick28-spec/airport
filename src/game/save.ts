@@ -3,7 +3,8 @@
 
 import { SAVE_KEY } from "./constants";
 import { addEvent, createEmptyState, resetWeather } from "./simulation";
-import type { Climate, Contract, GameState, MapLabel, TileType, WeatherSpell } from "./types";
+import { initLand } from "./projects";
+import type { Climate, Contract, GameState, MapLabel, Project, TileType, WeatherSpell } from "./types";
 
 const TYPES: TileType[] = [
   "empty", "parking", "shuttle", "sidewalk", "floor", "checkin", "tsa", "customs", "gate", "runway", "taxiway", "tower",
@@ -42,6 +43,9 @@ interface SaveData {
   scenarioId?: string;
   /** 1000 once prices moved to real dollars; missing in older saves */
   moneyScale?: number;
+  owned?: string;
+  landPermits?: number;
+  projects?: Project[];
   /** [tile, type, level, start, done, cost] */
   sites?: [number, number, number, number, number, number][];
 }
@@ -79,6 +83,9 @@ export function serialize(s: GameState): string {
     diversions: s.diversions,
     scenarioId: s.scenarioId,
     moneyScale: 1000,
+    owned: s.owned.map((o) => (o ? "1" : "0")).join(""),
+    landPermits: s.landPermits,
+    projects: s.projects,
     sites: s.sites.flatMap((i) => {
       const site = s.tiles[i].site;
       return site ? [[i, TYPES.indexOf(site.type), site.level, site.start, site.done, site.cost] as [number, number, number, number, number, number]] : [];
@@ -127,12 +134,18 @@ export function deserialize(json: string): GameState | null {
     s.otp = d.otp ?? 90;
     s.diversions = d.diversions ?? 0;
     s.scenarioId = d.scenarioId ?? "blank";
+    s.projects = d.projects ?? [];
+    const projectOf = new Map<number, number>();
+    for (const pr of s.projects) for (const i of pr.tiles) projectOf.set(i, pr.id);
     for (const [i, type, level, start, done, cost] of d.sites ?? []) {
       const kind = TYPES[type];
       if (!s.tiles[i] || !kind || kind === "empty") continue;
-      s.tiles[i].site = { type: kind, level, start, done, cost };
+      s.tiles[i].site = { type: kind, level, start, done, cost, projectId: projectOf.get(i) };
       s.sites.push(i);
     }
+    initLand(s);
+    if (d.owned && d.owned.length === s.owned.length) s.owned = d.owned.split("").map((c) => c === "1");
+    s.landPermits = d.landPermits ?? 1;
     if (d.forecast && d.forecast.length > 0) s.forecast = d.forecast;
     else resetWeather(s);
     s.nextSchedule = s.time;

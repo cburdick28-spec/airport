@@ -44,6 +44,7 @@ import {
   WALK_SPEED,
 } from "./constants";
 import { duration, money } from "./money";
+import { claimable, claimablePlots, footprint, initLand, isOwned, MERGEABLE, TERMINALS } from "./projects";
 import { derivePath, distanceField, distFrom, fieldTo, taxiPath } from "./pathfinding";
 import { runHas, runHeadingDir, runIdx, runProgress, runStart } from "./runways";
 import type { Analysis, Contract, Flight, GameState, Passenger, PlaneClass, RunwayRun, StepKind, TileType } from "./types";
@@ -56,7 +57,7 @@ import { currentWeather, initWeather, runwayBlock, runwayDir, updateWeather, WEA
 export function createEmptyState(money = 60_000_000): GameState {
   const tiles = [];
   for (let i = 0; i < GRID_W * GRID_H; i++) tiles.push({ type: "empty" as TileType, level: 1 });
-  return {
+  const s: GameState = {
     w: GRID_W,
     h: GRID_H,
     tiles,
@@ -74,6 +75,10 @@ export function createEmptyState(money = 60_000_000): GameState {
     buses: [],
     facilities: {},
     sites: [],
+    owned: [],
+    landPermits: 1,
+    projects: [],
+    celebrations: [],
     gateFlight: {},
     gateCooldown: {},
     gateNote: {},
@@ -105,7 +110,9 @@ export function createEmptyState(money = 60_000_000): GameState {
     diversions: 0,
     bankrupt: false,
     scenarioId: "blank",
-  };
+  };;
+  initLand(s);
+  return s;
 }
 
 /** call after changing the climate of a fresh state */
@@ -227,6 +234,7 @@ const ON_FLOOR: TileType[] = ["checkin", "tsa", "customs", "gate"];
 export function buildBlocker(s: GameState, idx: number, type: Exclude<TileType, "empty">): string | null {
   const t = s.tiles[idx];
   if (t.site) return "Under construction";
+  if (!isOwned(s, idx)) return "You don't own this land yet (claim it with a land permit)";
   if (t.type === type) return "Already built here";
   if (t.type !== "empty" && !(t.type === "floor" && ON_FLOOR.includes(type))) return "Tile is occupied";
   if (s.money < BUILD[type].cost[0]) return s.money < 0 ? "Overdrawn: take a loan or cut costs" : "Not enough money";
@@ -251,6 +259,7 @@ export function build(s: GameState, idx: number, type: Exclude<TileType, "empty"
 
 export function demolish(s: GameState, idx: number): ActionResult {
   const t = s.tiles[idx];
+  if (t.site?.projectId) return cancelProject(s, t.site.projectId);
   if (t.site) {
     // cancel the construction, keep whatever was here before
     const refund = Math.round(t.site.cost * CANCEL_REFUND);
@@ -306,12 +315,103 @@ function updateConstruction(s: GameState) {
     if (s.time < site.done) return true;
     s.tiles[idx] = { type: site.type, level: site.level };
     s.version++;
-    if (!BUILD[site.type].paint) open.push(siteName(site));
+    if (!BUILD[site.type].paint && !site.projectId) open.push(siteName(site));
     return false;
   });
   for (const name of new Set(open)) {
     const n = open.filter((x) => x === name).length;
     addEvent(s, `Construction finished: ${name}${n > 1 ? ` ×${n}` : ""} is open`, "good");
+  }
+  for (const pr of s.projects) {
+    if (s.time < pr.done) continue;
+    if (pr.tiles.some((i) => s.tiles[i].site?.projectId === pr.id)) continue;
+    openProject(s, pr.id);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Land and terminal megaprojects
+// ---------------------------------------------------------------------------
+
+export function claimPlot(s: GameState, plot: number): ActionResult {
+  if (s.landPermits <= 0) return { ok: false, msg: "No land permit: finish a terminal project to earn one" };
+  if (s.owned[plot]) return { ok: false, msg: "You already own this plot" };
+  if (!claimable(s, plot)) return { ok: false, msg: "A new plot has to border land you own" };
+  s.owned[plot] = true;
+  s.landPermits--;
+  s.version++;
+  return { ok: true, msg: "New plot claimed: start building!" };
+}
+
+function nextTerminalLabel(s: GameState): string {
+  const used = new Set([...s.labels.map((l) => l.text), ...s.projects.map((p) => p.label)]);
+  for (let n = 1; n < 100; n++) if (!used.has("T" + n)) return "T" + n;
+  return "T";
+}
+
+/** why a terminal can't go here, or null */
+export function projectBlocker(s: GameState, templateId: string, rot: number, cx: number, cy: number): string | null {
+  const t = TERMINALS.find((x) => x.id === templateId);
+  if (!t) return "Unknown terminal";
+  if (s.tier < t.tier) return `Needs a Tier ${t.tier} airport`;
+  for (const f of footprint(t, rot, cx, cy)) {
+    if (f.x < 0 || f.y < 0 || f.x >= s.w || f.y >= s.h) return "Off the edge of the map";
+    const idx = f.y * s.w + f.x;
+    if (!isOwned(s, idx)) return "Part of it is on land you don't own";
+    const here = s.tiles[idx];
+    if (here.site) return "A construction site is in the way";
+    if (here.type !== "empty" && !(here.type === f.type && MERGEABLE.includes(f.type))) return "Something is in the way";
+  }
+  if (s.money < t.cost) return s.money < 0 ? "Overdrawn: take a loan or cut costs" : `Needs ${money(t.cost)}`;
+  return null;
+}
+
+export function placeProject(s: GameState, templateId: string, rot: number, cx: number, cy: number): ActionResult {
+  const why = projectBlocker(s, templateId, rot, cx, cy);
+  if (why) return { ok: false, msg: why };
+  const t = TERMINALS.find((x) => x.id === templateId);
+  if (!t) return { ok: false, msg: "" };
+  spend(s, t.cost);
+  const id = s.nextId++;
+  const tiles: number[] = [];
+  const done = s.time + t.time;
+  for (const f of footprint(t, rot, cx, cy)) {
+    const idx = f.y * s.w + f.x;
+    if (s.tiles[idx].type === f.type) continue; // already there (apron, walkway, parking)
+    s.tiles[idx].site = { type: f.type, level: f.level, start: s.time, done, cost: 0, projectId: id };
+    s.sites.push(idx);
+    tiles.push(idx);
+  }
+  const label = nextTerminalLabel(s);
+  s.projects.push({ id, template: t.id, name: t.name, label, tiles, start: s.time, done, cost: t.cost, x: cx, y: cy });
+  s.version++;
+  return { ok: true, msg: `${label} ${t.name} under construction: grand opening in ${duration(t.time)}` };
+}
+
+export function cancelProject(s: GameState, id: number): ActionResult {
+  const pr = s.projects.find((p) => p.id === id);
+  if (!pr) return { ok: false, msg: "" };
+  for (const i of pr.tiles) if (s.tiles[i].site?.projectId === id) delete s.tiles[i].site;
+  s.sites = s.sites.filter((i) => s.tiles[i].site);
+  s.projects = s.projects.filter((p) => p.id !== id);
+  const refund = Math.round(pr.cost * CANCEL_REFUND);
+  s.money += refund;
+  s.version++;
+  return { ok: true, msg: `${pr.name} cancelled: ${money(refund)} back` };
+}
+
+function openProject(s: GameState, id: number) {
+  const pr = s.projects.find((p) => p.id === id);
+  if (!pr) return;
+  s.projects = s.projects.filter((p) => p.id !== id);
+  s.labels.push({ x: pr.x, y: pr.y, text: pr.label });
+  s.celebrations.push({ x: pr.x, y: pr.y, time: s.time, text: pr.label });
+  s.version++;
+  if (claimablePlots(s).length > 0) {
+    s.landPermits++;
+    addEvent(s, `Ribbon cut! ${pr.label} ${pr.name} is open. You earned a land permit: claim a new plot.`, "good");
+  } else {
+    addEvent(s, `Ribbon cut! ${pr.label} ${pr.name} is open.`, "good");
   }
 }
 
@@ -1262,6 +1362,7 @@ export function step(s: GameState, dt: number) {
   s.time += dt;
   updateWeather(s, dt);
   updateConstruction(s);
+  if (s.celebrations.length && s.time - s.celebrations[0].time > 90) s.celebrations.shift();
   let a = getAnalysis(s);
 
   const demand = currentDemand(s);

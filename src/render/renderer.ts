@@ -4,6 +4,8 @@ import { getAnalysis } from "@/game/analysis";
 import { BUILD, PLANES } from "@/game/constants";
 import { runHeadingDir, runProgress, runStart, runwayMarks, type RunwayMarks } from "@/game/runways";
 import { currentWeather, runwayStates, type RunwayState } from "@/game/weather";
+import { claimable, footprint, plotCols, plotOf, plotRect, plotRows, TERMINALS } from "@/game/projects";
+import { projectBlocker } from "@/game/simulation";
 import { buildBlocker } from "@/game/simulation";
 import type { Flight, GameState, TileType } from "@/game/types";
 
@@ -11,7 +13,21 @@ export type Tool =
   | { kind: "build"; type: Exclude<TileType, "empty"> }
   | { kind: "bulldoze" }
   | { kind: "upgrade" }
+  | { kind: "project"; id: string; rot: number }
+  | { kind: "claim" }
   | null;
+
+/** colour of each kind of building in footprint previews */
+export const PREVIEW_COLOR: Record<string, string> = {
+  taxiway: "#8d97a6",
+  gate: "#16a34a",
+  floor: "#f8f5ee",
+  checkin: "#2f6fed",
+  tsa: "#7c3aed",
+  customs: "#0d9488",
+  sidewalk: "#c8c2b4",
+  parking: "#687385",
+};
 
 export interface View {
   /** css pixels per tile */
@@ -272,6 +288,82 @@ function drawPlane(ctx: CanvasRenderingContext2D, f: Flight, T: number) {
   ctx.restore();
 }
 
+/** land you don't own is shaded; in claim mode the plots you can take light up */
+function drawLand(ctx: CanvasRenderingContext2D, s: GameState, T: number, view: View) {
+  const claiming = view.tool?.kind === "claim";
+  const hoverPlot = view.hover >= 0 ? plotOf(s, view.hover) : -1;
+  for (let p = 0; p < plotCols(s) * plotRows(s); p++) {
+    const r = plotRect(s, p);
+    if (s.owned[p]) continue;
+    const can = claiming && claimable(s, p);
+    ctx.fillStyle = can ? (p === hoverPlot ? "rgba(34,197,94,0.38)" : "rgba(34,197,94,0.16)") : "rgba(30,41,59,0.3)";
+    ctx.fillRect(r.x * T, r.y * T, r.w * T, r.h * T);
+    ctx.strokeStyle = can ? "#22c55e" : "rgba(15,23,42,0.35)";
+    ctx.lineWidth = can ? 2 : 1;
+    ctx.setLineDash(can ? [] : [T * 0.5, T * 0.4]);
+    ctx.strokeRect(r.x * T + 1, r.y * T + 1, r.w * T - 2, r.h * T - 2);
+    ctx.setLineDash([]);
+    if (can) {
+      ctx.fillStyle = "#14532d";
+      ctx.font = `800 ${Math.max(10, T * 1.1)}px system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("CLAIM", (r.x + r.w / 2) * T, (r.y + r.h / 2) * T);
+    }
+  }
+}
+
+/** translucent preview of a terminal megaproject before you place it */
+function drawGhost(ctx: CanvasRenderingContext2D, s: GameState, T: number, id: string, rot: number, hover: number) {
+  const t = TERMINALS.find((x) => x.id === id);
+  if (!t) return;
+  const cx = hover % s.w;
+  const cy = Math.floor(hover / s.w);
+  const bad = projectBlocker(s, id, rot, cx, cy);
+  ctx.globalAlpha = 0.7;
+  for (const f of footprint(t, rot, cx, cy)) {
+    ctx.fillStyle = PREVIEW_COLOR[f.type] ?? "#ffffff";
+    ctx.fillRect(f.x * T, f.y * T, T, T);
+  }
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = bad ? "#dc2626" : "#16a34a";
+  ctx.lineWidth = 2;
+  for (const f of footprint(t, rot, cx, cy)) ctx.strokeRect(f.x * T + 1, f.y * T + 1, T - 2, T - 2);
+}
+
+const CONFETTI = ["#ef4444", "#f59e0b", "#22c55e", "#3b82f6", "#a855f7", "#ec4899", "#facc15"];
+
+/** confetti and a banner for a grand opening */
+function drawCelebrations(ctx: CanvasRenderingContext2D, s: GameState, T: number) {
+  for (const c of s.celebrations) {
+    const age = s.time - c.time;
+    if (age > 60) continue;
+    const cx = c.x * T + T / 2;
+    const cy = c.y * T + T / 2;
+    const t = (age % 12) / 12; // a fresh burst every 12 game minutes
+    for (let i = 0; i < 70; i++) {
+      const a = i * 2.39996;
+      const sp = (0.5 + ((i * 37) % 10) / 10) * T * 6;
+      const x = cx + Math.cos(a) * sp * t;
+      const y = cy + Math.sin(a) * sp * t * 0.6 + t * t * T * 4;
+      ctx.fillStyle = CONFETTI[i % CONFETTI.length];
+      ctx.globalAlpha = 1 - t;
+      ctx.fillRect(x, y, Math.max(2, T * 0.25), Math.max(2, T * 0.14));
+    }
+    ctx.globalAlpha = 1;
+    const text = `GRAND OPENING ${c.text}`;
+    ctx.font = `900 ${Math.max(11, T * 0.9)}px system-ui, sans-serif`;
+    const w = ctx.measureText(text).width + T;
+    ctx.fillStyle = "#dc2626";
+    roundRect(ctx, cx - w / 2, cy - T * 3.2, w, T * 1.4, T * 0.4);
+    ctx.fill();
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, cx, cy - T * 2.5);
+  }
+}
+
 /** construction: dirt and hazard stripes, with a progress bar on buildings */
 function drawSites(ctx: CanvasRenderingContext2D, s: GameState, T: number) {
   for (const idx of s.sites) {
@@ -424,6 +516,7 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, view: View) 
 
   drawTiles(ctx, s, T, runwayMarks(s, a.runways));
   drawSites(ctx, s, T);
+  drawLand(ctx, s, T, view);
   drawRunwayStatus(ctx, s, T, runwayStates(s, a));
 
   // shuttle route
@@ -518,6 +611,7 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, view: View) 
   const planes = s.flights.filter((f) => f.state !== "scheduled");
   planes.sort((p, q) => Number(p.state === "landing" || p.state === "takeoff") - Number(q.state === "landing" || q.state === "takeoff"));
   for (const f of planes) drawPlane(ctx, f, T);
+  drawCelebrations(ctx, s, T);
 
   // terminal name signs
   if (s.labels.length > 0) {
@@ -544,6 +638,11 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, view: View) 
   if (night > 0) {
     ctx.fillStyle = `rgba(15,23,60,${0.22 * night})`;
     ctx.fillRect(0, 0, W, H);
+  }
+
+  if (view.tool?.kind === "project" && view.hover >= 0) {
+    drawGhost(ctx, s, T, view.tool.id, view.tool.rot, view.hover);
+    return;
   }
 
   // hover / tool preview

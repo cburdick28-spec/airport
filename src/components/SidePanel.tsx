@@ -54,9 +54,12 @@ export default function SidePanel({ s }: { s: GameState }) {
   for (const i of s.sites) {
     const site = s.tiles[i].site;
     if (!site) continue;
-    const key = `${site.type}:${site.level}:${Math.round(site.done / 15)}`;
+    const pr = site.projectId ? s.projects.find((x) => x.id === site.projectId) : undefined;
+    const key = pr ? `p${pr.id}` : `${site.type}:${site.level}:${Math.round(site.done / 15)}`;
     const p = projects.get(key);
-    if (p) {
+    if (pr) {
+      if (!p) projects.set(key, { name: `${pr.label} ${pr.name}`, count: 1, done: pr.done, start: pr.start, cost: pr.cost });
+    } else if (p) {
       p.count++;
       p.cost += site.cost;
     } else projects.set(key, { name: siteName(site), count: 1, done: site.done, start: site.start, cost: site.cost });

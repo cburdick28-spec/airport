@@ -3,6 +3,7 @@
 
 import { MAX_STEP } from "./constants";
 import { recenter } from "./layout";
+import { initLand } from "./projects";
 import { addEvent, createEmptyState, resetWeather, step } from "./simulation";
 import type { GameState, TileType } from "./types";
 
@@ -44,6 +45,7 @@ export function createTutorialAirport(): GameState {
   set(s, 28, 21, "shuttle");
 
   recenter(s);
+  initLand(s);
   s.name = "Starter Airfield";
   s.scenarioId = "tutorial";
   s.drivers = 1;
@@ -58,6 +60,7 @@ export function createTutorialAirport(): GameState {
   addEvent(s, "Welcome! This starter airfield is already running. Watch a flight land, then expand.", "good");
   addEvent(s, "Goal: serve 500 passengers at 80%+ satisfaction and upgrade a gate to Medium to reach Tier 2.", "info");
   addEvent(s, "Watch the sky: with no Control Tower, fog and thunderstorms will shut your runway.", "info");
+  addEvent(s, "You have a land permit: claim a plot next to your airfield (Terminals / Land tab) to make room to grow.", "info");
   return s;
 }
 
