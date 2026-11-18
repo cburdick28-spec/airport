@@ -323,6 +323,81 @@ export function upgrade(s: GameState, idx: number): ActionResult {
   return { ok: true, msg: s.sandbox ? `Upgraded to ${label}` : `Upgrading to ${label}: ready in ${duration(def.time[t.level])}` };
 }
 
+// ---------------------------------------------------------------------------
+// Area tools (shift-drag a rectangle)
+// ---------------------------------------------------------------------------
+
+export type AreaAction = Exclude<TileType, "empty"> | "bulldoze";
+
+function areaTiles(s: GameState, a: number, b: number): number[] {
+  const x0 = Math.min(a % s.w, b % s.w);
+  const x1 = Math.max(a % s.w, b % s.w);
+  const y0 = Math.min(Math.floor(a / s.w), Math.floor(b / s.w));
+  const y1 = Math.max(Math.floor(a / s.w), Math.floor(b / s.w));
+  const out: number[] = [];
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) out.push(y * s.w + x);
+  return out;
+}
+
+export interface AreaPlan {
+  width: number;
+  height: number;
+  /** tiles the action will actually change */
+  count: number;
+  cost: number;
+  affordable: boolean;
+}
+
+/** what a shift-drag rectangle would do, for the preview */
+export function areaPlan(s: GameState, action: AreaAction, a: number, b: number): AreaPlan {
+  const tiles = areaTiles(s, a, b);
+  const width = Math.abs((a % s.w) - (b % s.w)) + 1;
+  const height = Math.abs(Math.floor(a / s.w) - Math.floor(b / s.w)) + 1;
+  if (action === "bulldoze") {
+    const count = tiles.filter((i) => s.tiles[i].type !== "empty" || s.tiles[i].site).length;
+    return { width, height, count, cost: 0, affordable: true };
+  }
+  const price = BUILD[action].cost[0];
+  const count = tiles.filter((i) => {
+    const why = buildBlocker(s, i, action);
+    return !why || why === "Not enough money" || why.startsWith("Overdrawn");
+  }).length;
+  return { width, height, count, cost: count * price, affordable: canAfford(s, count * price) };
+}
+
+/** build (or bulldoze) every tile in the rectangle; stops when the money runs out */
+export function applyArea(s: GameState, action: AreaAction, a: number, b: number): ActionResult {
+  const tiles = areaTiles(s, a, b);
+  let done = 0;
+  let spent = 0;
+  let broke = false;
+  for (const i of tiles) {
+    if (action === "bulldoze") {
+      if (s.tiles[i].type === "empty" && !s.tiles[i].site) continue;
+      if (demolish(s, i).ok) done++;
+      continue;
+    }
+    const why = buildBlocker(s, i, action);
+    if (why === "Not enough money" || why?.startsWith("Overdrawn")) {
+      broke = true;
+      break;
+    }
+    if (why) continue;
+    if (build(s, i, action).ok) {
+      done++;
+      spent += BUILD[action].cost[0];
+    }
+  }
+  if (action === "bulldoze") return { ok: done > 0, msg: done ? `Cleared ${done} tile${done === 1 ? "" : "s"}` : "Nothing to clear" };
+  const name = BUILD[action].name;
+  if (done === 0) return { ok: false, msg: broke ? "Not enough money" : `Nothing to build: the area is full or not your land` };
+  const cost = s.sandbox ? "free" : money(spent);
+  return {
+    ok: true,
+    msg: broke ? `Built ${done} ${name} tiles (${cost}) before the money ran out` : `Built ${done} ${name} tile${done === 1 ? "" : "s"} (${cost})`,
+  };
+}
+
 export function siteName(site: { type: Exclude<TileType, "empty">; level: number }): string {
   if (site.type === "gate") return `${GATE_SIZE[site.level]} Gate`;
   const def = BUILD[site.type];

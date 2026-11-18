@@ -32,6 +32,8 @@ export const PREVIEW_COLOR: Record<string, string> = {
 export interface View {
   /** css pixels per tile */
   tile: number;
+  /** shift-drag rectangle being drawn */
+  area?: { a: number; b: number } | null;
   /** visible part of the map in tiles (defaults to all of it) */
   clip?: { x: number; y: number; w: number; h: number };
   hover: number;
@@ -648,6 +650,22 @@ export function render(ctx: CanvasRenderingContext2D, s: GameState, view: View) 
 
   if (view.tool?.kind === "project" && view.hover >= 0) {
     drawGhost(ctx, s, T, view.tool.id, view.tool.rot, view.hover);
+    return;
+  }
+
+  if (view.area) {
+    const x0 = Math.min(view.area.a % s.w, view.area.b % s.w);
+    const x1 = Math.max(view.area.a % s.w, view.area.b % s.w);
+    const y0 = Math.min(Math.floor(view.area.a / s.w), Math.floor(view.area.b / s.w));
+    const y1 = Math.max(Math.floor(view.area.a / s.w), Math.floor(view.area.b / s.w));
+    const red = view.tool?.kind === "bulldoze";
+    ctx.fillStyle = red ? "rgba(220,38,38,0.25)" : "rgba(22,163,74,0.28)";
+    ctx.fillRect(x0 * T, y0 * T, (x1 - x0 + 1) * T, (y1 - y0 + 1) * T);
+    ctx.strokeStyle = red ? "#dc2626" : "#16a34a";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(x0 * T + 1, y0 * T + 1, (x1 - x0 + 1) * T - 2, (y1 - y0 + 1) * T - 2);
+    ctx.setLineDash([]);
     return;
   }
 

@@ -58,6 +58,8 @@ Hover any tile to see why it isn't working ("Needs TSA connection", "No runway a
 
 **Controls:** Space = pause, 1/2/3 = speed, B = bulldoze, U = upgrade, Esc = stop building. Drag to paint floors, walkways, runways and taxiways.
 
+**Area building:** hold Shift and drag to fill a whole rectangle with parking, walkway, floor, taxiway or runway tiles (or to bulldoze it). The preview shows the size, tile count and price; if you can't afford all of it, it builds until the money runs out.
+
 **3D camera:** right-drag rotates, scroll zooms, WASD or arrow keys move, and in Inspect mode left-drag moves too. The "2D map" button in the top bar switches to the flat view if 3D runs slowly.
 
 ## Project layout

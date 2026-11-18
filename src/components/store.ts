@@ -7,6 +7,7 @@ import {
   build,
   claimPlot,
   demolish,
+  applyArea,
   makeSandbox,
   placeProject,
   renameTerminal,
@@ -49,6 +50,8 @@ export const store = {
   lastEventId: 0,
   /** true = 3D view (three.js), false = classic 2D canvas */
   view3d: true,
+  /** shift-drag rectangle in progress (tile indices of two corners) */
+  area: null as { a: number; b: number } | null,
   /** style and name for the next terminal you place */
   projectStyle: "glass" as TerminalStyle,
   projectName: "",
@@ -145,6 +148,32 @@ export const store = {
   setBaseStyle(style: TerminalStyle) {
     if (store.state) store.say(setBaseStyle(store.state, style).msg, "info");
   },
+  /** the current tool can fill a rectangle: paintable buildings and the bulldozer */
+  areaAction(): "bulldoze" | Exclude<GameState["tiles"][number]["type"], "empty"> | null {
+    const t = store.tool;
+    if (t?.kind === "bulldoze") return "bulldoze";
+    if (t?.kind === "build" && BUILD[t.type].paint) return t.type;
+    return null;
+  },
+  startArea(idx: number) {
+    store.area = { a: idx, b: idx };
+    store.bump();
+  },
+  moveArea(idx: number) {
+    if (store.area && idx >= 0 && idx !== store.area.b) {
+      store.area = { ...store.area, b: idx };
+      store.bump();
+    }
+  },
+  finishArea() {
+    const s = store.state;
+    const area = store.area;
+    const act = store.areaAction();
+    store.area = null;
+    if (!s || !area || !act) return store.bump();
+    const res = applyArea(s, act, area.a, area.b);
+    store.say(res.msg, res.ok ? "good" : "bad");
+  },
   rotate() {
     if (store.tool?.kind === "project") {
       store.tool = { ...store.tool, rot: (store.tool.rot + 1) % 4 };
@@ -152,6 +181,7 @@ export const store = {
     }
   },
   setTool(t: Tool) {
+    store.area = null;
     store.tool = t;
     store.bump();
   },

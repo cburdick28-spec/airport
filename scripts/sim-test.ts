@@ -5,6 +5,8 @@ import { deserialize, serialize } from "../src/game/save";
 import { SCENARIOS } from "../src/game/scenarios";
 import {
   build,
+  applyArea,
+  areaPlan,
   claimPlot,
   createEmptyState,
   demolish,
@@ -214,12 +216,16 @@ run(jfk, 10);
 assert(jfk.tier === 5, "Tier 5 Global Mega-Hub reached");
 let jumbo = false;
 let sst = false;
-run(jfk, 600, () =>
-  jfk.flights.forEach((f) => {
-    if (f.cls === 3 && f.state === "deboarding") jumbo = true;
-    if (f.cls === 4 && f.state === "deboarding") sst = true;
-  }),
-);
+// flights are picked at random, so keep watching (up to two days) until both have shown up
+for (let h = 0; h < 48 && !(jumbo && sst); h++) {
+  calm(jfk);
+  run(jfk, 60, () =>
+    jfk.flights.forEach((f) => {
+      if (f.cls === 3 && f.state === "deboarding") jumbo = true;
+      if (f.cls === 4 && f.state === "deboarding") sst = true;
+    }),
+  );
+}
 assert(jumbo, "a Super Jumbo lands and parks");
 assert(sst, "a Supersonic jet lands and parks");
 
@@ -341,3 +347,39 @@ assert(sb.forecast.length > 0, "sandbox: weather still runs");
 const sbLoad = deserialize(serialize(sb));
 assert(sbLoad && sbLoad.sandbox, "sandbox survives save/load");
 console.log("ALL GOOD (sandbox)");
+
+// ---------------------------------------------------------------------------
+// shift-drag area tools
+// ---------------------------------------------------------------------------
+const ar = createTutorialAirport();
+calm(ar);
+// find a clear 6 x 4 patch on owned land
+let corner = -1;
+for (let i = 0; i < ar.tiles.length && corner < 0; i++) {
+  const x = i % ar.w;
+  const y = Math.floor(i / ar.w);
+  if (x + 5 >= ar.w || y + 3 >= ar.h) continue;
+  let ok = true;
+  for (let dy = 0; dy < 4 && ok; dy++)
+    for (let dx = 0; dx < 6; dx++) {
+      const j = (y + dy) * ar.w + x + dx;
+      if (ar.tiles[j].type !== "empty" || !isOwned(ar, j)) ok = false;
+    }
+  if (ok) corner = i;
+}
+const far = corner + 3 * ar.w + 5;
+const plan = areaPlan(ar, "parking", corner, far);
+assert(plan.width === 6 && plan.height === 4 && plan.count === 24 && plan.cost === 24 * BUILD.parking.cost[0], "area preview: 24 parking tiles and their price");
+ar.money = 1e9;
+const cashA = ar.money;
+assert(applyArea(ar, "parking", corner, far).ok && ar.money === cashA - plan.cost, "shift-drag builds all 24 parking tiles");
+assert(areaPlan(ar, "parking", corner, far).count === 0, "a filled area has nothing left to build");
+ar.money = BUILD.parking.cost[0] * 5.5;
+const plan2 = areaPlan(ar, "sidewalk", corner, far);
+assert(plan2.count === 0, "can't pave over parking");
+finishAllConstruction(ar);
+assert(applyArea(ar, "bulldoze", corner, far).ok && ar.tiles[corner].type === "empty", "shift-drag bulldozes the whole area");
+const before5 = ar.money;
+const res5 = applyArea(ar, "parking", corner, far);
+assert(res5.ok && ar.sites.filter((i) => ar.tiles[i].site?.type === "parking").length === Math.floor(before5 / BUILD.parking.cost[0]), "stops building when the money runs out");
+console.log("ALL GOOD (area)");

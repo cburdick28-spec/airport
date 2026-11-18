@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { tileInfo } from "@/game/analysis";
 import { BUILD } from "@/game/constants";
-import { buildBlocker, projectBlocker } from "@/game/simulation";
+import { areaPlan, buildBlocker, projectBlocker } from "@/game/simulation";
 import { claimable, claimablePlots, isOwned, plotOf, TERMINALS } from "@/game/projects";
 import AirportPicker from "./AirportPicker";
 import BuildMenu from "./BuildMenu";
@@ -28,7 +28,19 @@ function Tooltip({ pointer }: { pointer: Pointer }) {
   const rows: { text: string; tone: string }[] = [];
   let title = info?.title ?? "";
 
-  if (tool?.kind === "build") {
+  const act = store.area ? store.areaAction() : null;
+  if (store.area && act) {
+    const plan = areaPlan(s, act, store.area.a, store.area.b);
+    title = `${plan.width} × ${plan.height} area`;
+    if (act === "bulldoze") rows.push({ text: `Clears ${plan.count} tile${plan.count === 1 ? "" : "s"}`, tone: "text-rose-300" });
+    else {
+      rows.push({ text: `${plan.count} ${BUILD[act].name} tile${plan.count === 1 ? "" : "s"} · ${s.sandbox ? "free" : money(plan.cost)}`, tone: "text-slate-200" });
+      if (!plan.affordable) rows.push({ text: "Not enough money for all of it: builds until the money runs out", tone: "text-amber-300" });
+      if (plan.count < plan.width * plan.height)
+        rows.push({ text: `${plan.width * plan.height - plan.count} tiles skipped (taken or not your land)`, tone: "text-slate-400" });
+    }
+    rows.push({ text: "Let go to confirm · Esc to cancel", tone: "text-slate-400" });
+  } else if (tool?.kind === "build") {
     const def = BUILD[tool.type];
     const why = buildBlocker(s, pointer.idx, tool.type);
     title = `Build ${def.name} · ${money(def.cost[0])} · ${duration(def.time[0])}`;
@@ -135,8 +147,9 @@ export default function Game() {
           )}
           {tool && (
             <div className="pointer-events-none absolute left-4 top-4 rounded-md bg-slate-900/85 px-3 py-1.5 text-xs text-slate-200">
-              {tool.kind === "build" && `Building: ${BUILD[tool.type].name}${BUILD[tool.type].paint ? " (drag to paint)" : ""}`}
-              {tool.kind === "bulldoze" && "Bulldozer: click or drag"}
+              {tool.kind === "build" &&
+                `Building: ${BUILD[tool.type].name}${BUILD[tool.type].paint ? " (drag to paint, shift-drag to fill an area)" : ""}`}
+              {tool.kind === "bulldoze" && "Bulldozer: click or drag, shift-drag to clear an area"}
               {tool.kind === "upgrade" && "Upgrade: click a building"}
               {tool.kind === "project" && `Placing: ${TERMINALS.find((t) => t.id === tool.id)?.name} · R to rotate`}
               {tool.kind === "claim" && "Claim a plot: click a green plot"}

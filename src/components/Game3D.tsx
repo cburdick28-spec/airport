@@ -35,7 +35,7 @@ export default function Game3D({ onPointer }: Props) {
     const ro = new ResizeObserver(resize);
     ro.observe(wrap);
 
-    const stop = startLoop((s, _now, dt) => scene.render(s, { hover: store.hover, tool: store.tool }, dt));
+    const stop = startLoop((s, _now, dt) => scene.render(s, { hover: store.hover, tool: store.tool, area: store.area }, dt));
 
     let down = false;
     let lastIdx = -1;
@@ -43,6 +43,10 @@ export default function Game3D({ onPointer }: Props) {
       if (e.button !== 0 || !store.tool) return;
       const idx = scene.pick(e.clientX, e.clientY);
       if (idx < 0) return;
+      if (e.shiftKey && store.areaAction()) {
+        store.startArea(idx);
+        return;
+      }
       down = true;
       lastIdx = idx;
       store.applyTool(idx, false);
@@ -51,6 +55,7 @@ export default function Game3D({ onPointer }: Props) {
       const idx = scene.pick(e.clientX, e.clientY);
       store.hover = idx;
       onPointer(idx >= 0 ? { idx, x: e.clientX, y: e.clientY } : null);
+      if (store.area) store.moveArea(idx);
       if (down && idx >= 0 && idx !== lastIdx) {
         lastIdx = idx;
         store.applyTool(idx, true);
@@ -59,6 +64,7 @@ export default function Game3D({ onPointer }: Props) {
     const onUp = () => {
       down = false;
       lastIdx = -1;
+      if (store.area) store.finishArea();
     };
     const onLeave = () => {
       store.hover = -1;

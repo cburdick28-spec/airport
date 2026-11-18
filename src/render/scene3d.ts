@@ -30,6 +30,8 @@ import { PREVIEW_COLOR, type Tool } from "./renderer";
 export interface View3D {
   hover: number;
   tool: Tool;
+  /** shift-drag rectangle being drawn */
+  area?: { a: number; b: number } | null;
 }
 
 const INDOOR: Partial<Record<TileType, boolean>> = { floor: true, checkin: true, tsa: true, customs: true, gate: true };
@@ -142,6 +144,7 @@ export class Scene3D {
   private textures = new Map<string, THREE.CanvasTexture>();
 
   private hoverMesh: THREE.Mesh;
+  private areaMesh: THREE.Mesh;
   private standMesh: THREE.Mesh;
   private raycaster = new THREE.Raycaster();
   private ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.08);
@@ -301,7 +304,13 @@ export class Scene3D {
     );
     this.standMesh.scale.set(0.9, 0.06, 0.9);
     this.standMesh.visible = false;
-    this.scene.add(this.hoverMesh, this.standMesh);
+    this.areaMesh = new THREE.Mesh(
+      this.box,
+      new THREE.MeshBasicMaterial({ color: "#22c55e", transparent: true, opacity: 0.35, depthWrite: false }),
+    );
+    this.areaMesh.visible = false;
+    this.areaMesh.renderOrder = 6;
+    this.scene.add(this.hoverMesh, this.standMesh, this.areaMesh);
   }
 
   // -------------------------------------------------------------------------
@@ -1258,6 +1267,18 @@ export class Scene3D {
     this.updateLand(s, view);
     this.updateGhost(s, view);
     this.updateCelebrations(s);
+
+    // shift-drag rectangle
+    if (view.area) {
+      const x0 = Math.min(view.area.a % s.w, view.area.b % s.w);
+      const x1 = Math.max(view.area.a % s.w, view.area.b % s.w);
+      const z0 = Math.min(Math.floor(view.area.a / s.w), Math.floor(view.area.b / s.w));
+      const z1 = Math.max(Math.floor(view.area.a / s.w), Math.floor(view.area.b / s.w));
+      this.areaMesh.visible = true;
+      this.areaMesh.position.set((x0 + x1) / 2, 0.14, (z0 + z1) / 2);
+      this.areaMesh.scale.set(x1 - x0 + 1, 0.06, z1 - z0 + 1);
+      (this.areaMesh.material as THREE.MeshBasicMaterial).color.set(view.tool?.kind === "bulldoze" ? "#ef4444" : "#22c55e");
+    } else this.areaMesh.visible = false;
 
     // hover + tool preview
     const hm = this.hoverMesh.material as THREE.MeshBasicMaterial;

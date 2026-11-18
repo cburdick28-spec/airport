@@ -108,7 +108,7 @@ export default function GameCanvas({ onPointer }: Props) {
         framedVersion = s.version;
       }
       ctx.setTransform(dpr, 0, 0, dpr, -view.x * tile * dpr, -view.y * tile * dpr);
-      render(ctx, s, { tile, hover: store.hover, tool: store.tool, clip: view });
+      render(ctx, s, { tile, hover: store.hover, tool: store.tool, clip: view, area: store.area });
     });
 
     // ---- input ----
@@ -129,15 +129,20 @@ export default function GameCanvas({ onPointer }: Props) {
       if (e.button !== 0) return;
       const idx = tileAt(e);
       if (idx < 0) return;
+      canvas.setPointerCapture(e.pointerId);
+      if (e.shiftKey && store.areaAction()) {
+        store.startArea(idx);
+        return;
+      }
       down = true;
       lastIdx = idx;
-      canvas.setPointerCapture(e.pointerId);
       store.applyTool(idx, false);
     };
     const onMove = (e: PointerEvent) => {
       const idx = tileAt(e);
       store.hover = idx;
       onPointer(idx >= 0 ? { idx, x: e.clientX, y: e.clientY } : null);
+      if (store.area) store.moveArea(idx);
       if (down && idx >= 0 && idx !== lastIdx) {
         lastIdx = idx;
         store.applyTool(idx, true);
@@ -146,6 +151,7 @@ export default function GameCanvas({ onPointer }: Props) {
     const onUp = () => {
       down = false;
       lastIdx = -1;
+      if (store.area) store.finishArea();
     };
     const onLeave = () => {
       store.hover = -1;
