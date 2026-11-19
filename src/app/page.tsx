@@ -1,5 +1,5 @@
-import Game from "@/components/Game";
+import Root from "@/components/Root";
 
 export default function Home() {
-  return <Game />;
+  return <Root />;
 }

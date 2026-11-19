@@ -7,6 +7,7 @@ import { currentWeather } from "@/game/weather";
 import WeatherBadge from "./WeatherBadge";
 import type { GameState } from "@/game/types";
 import { clock, money } from "./format";
+import { modeStore } from "./mode";
 import { store } from "./store";
 
 function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
@@ -72,6 +73,13 @@ export default function TopBar({ s }: { s: GameState }) {
           className="rounded-md border border-sky-500 bg-sky-500/20 px-3 py-1 text-sm font-semibold hover:bg-sky-500/40"
         >
           Airports
+        </button>
+        <button
+          onClick={() => modeStore.set("airline")}
+          title="Switch to Airline CEO mode (your airport is saved)"
+          className="rounded-md border border-indigo-400 bg-indigo-500/20 px-3 py-1 text-sm font-semibold hover:bg-indigo-500/40"
+        >
+          Airline CEO
         </button>
         <button
           onClick={() => store.setView3d(!store.view3d)}

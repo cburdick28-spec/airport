@@ -59,5 +59,6 @@ export function startLoop(draw: (s: GameState, now: number, dtReal: number) => v
   return () => {
     cancelAnimationFrame(raf);
     window.removeEventListener("beforeunload", onUnload);
+    onUnload(); // save when the view unmounts (switching views or game modes)
   };
 }

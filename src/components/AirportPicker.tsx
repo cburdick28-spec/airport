@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { SCENARIOS } from "@/game/scenarios";
+import { modeStore } from "./mode";
 import { store } from "./store";
 
 /** Dialog for jumping into one of the pre-built airports. */
@@ -32,6 +33,23 @@ export default function AirportPicker({ current }: { current: string }) {
             Close
           </button>
         </div>
+        <button
+          onClick={() => {
+            store.setPicker(false);
+            modeStore.set("airline");
+          }}
+          className="mb-4 flex w-full items-center gap-4 rounded-lg border border-sky-500/60 bg-gradient-to-r from-sky-600/30 to-indigo-600/20 p-4 text-left hover:border-sky-300"
+        >
+          <span className="text-4xl">🌍</span>
+          <span className="flex-1">
+            <span className="block text-lg font-black">New mode: Airline CEO</span>
+            <span className="block text-sm text-slate-300">
+              Run an airline instead of an airport. Pick a home airport and a starting fortune (broke to billionaire), open
+              routes around a 3D globe, and set Basic, Average or Luxury prices and seating on every route.
+            </span>
+          </span>
+          <span className="rounded-md bg-sky-500 px-3 py-1.5 text-sm font-bold">Play →</span>
+        </button>
         <label
           className={`mb-4 flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${
             sandbox ? "border-amber-400 bg-amber-500/10" : "border-slate-700 bg-slate-800/60"

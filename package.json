@@ -9,7 +9,9 @@
     "lint": "eslint",
     "test:sim": "tsx scripts/sim-test.ts",
     "test:scenarios": "tsx scripts/scenario-test.ts",
-    "balance": "tsx scripts/balance.ts"
+    "balance": "tsx scripts/balance.ts",
+    "airline:balance": "tsx scripts/airline-balance.ts",
+    "test:airline": "tsx scripts/airline-test.ts"
   },
   "dependencies": {
     "next": "16.4.6",
